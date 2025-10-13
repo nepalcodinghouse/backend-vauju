@@ -11,7 +11,13 @@ const userSchema = new mongoose.Schema({
   // photo field removed - profile images are no longer supported
   interests: { type: [String], default: [] },
   location: { type: String, default: "" },
+  // User controls and admin moderation fields
   visible: { type: Boolean, default: false },
+  visibilityRequested: { type: Boolean, default: false }, // user asked to appear in matches
+  visibilityApproved: { type: Boolean, default: false }, // admin approved visibility
+  isVerified: { type: Boolean, default: false },
+  suspended: { type: Boolean, default: false },
+  isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export default mongoose.model("User", userSchema);

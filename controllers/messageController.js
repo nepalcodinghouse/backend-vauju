@@ -68,14 +68,18 @@ export const getConversation = async (req, res) => {
     if (!otherId) return res.status(400).json({ message: "No userId" });
 
     if (isDbConnected() && mongoose.connection.readyState === 1) {
-      const msgs = await Message.find({ $or: [
+      const raw = await Message.find({ $or: [
         { from: req.user._id, to: otherId },
         { from: otherId, to: req.user._id }
       ]}).sort({ createdAt: 1 });
+      const msgs = raw.filter(m => !m.deletedFor?.some(u => String(u) === String(req.user._id)));
       return res.json(msgs);
     }
 
-    const msgs = messageStore.messages.filter(m => (String(m.from) === String(req.user._id) && String(m.to) === String(otherId)) || (String(m.from) === String(otherId) && String(m.to) === String(req.user._id)));
+    const msgs = messageStore.messages.filter(m => (
+      (String(m.from) === String(req.user._id) && String(m.to) === String(otherId)) ||
+      (String(m.from) === String(otherId) && String(m.to) === String(req.user._id))
+    ) && !(Array.isArray(m.deletedFor) && m.deletedFor.map(String).includes(String(req.user._id))));
     msgs.sort((a,b)=> new Date(a.createdAt) - new Date(b.createdAt));
     return res.json(msgs);
   } catch (err) {
@@ -141,6 +145,76 @@ export const heartbeat = async (req, res) => {
       if (io) io.emit('presence', { userId: String(id), online: true });
     } catch (e) {}
     return res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const deleteForMe = async (req, res) => {
+  try {
+    const messageId = req.params.messageId;
+    if (!messageId) return res.status(400).json({ message: "No messageId" });
+
+    if (isDbConnected() && mongoose.connection.readyState === 1) {
+      const m = await Message.findById(messageId);
+      if (!m) return res.status(404).json({ message: "Not found" });
+      const userId = String(req.user._id);
+      const updated = await Message.findByIdAndUpdate(messageId, { $addToSet: { deletedFor: userId } }, { new: true });
+      return res.json(updated);
+    }
+
+    const m = messageStore.messages.find(x => x._id === messageId);
+    if (!m) return res.status(404).json({ message: "Not found" });
+    const userId = String(req.user._id);
+    m.deletedFor = Array.isArray(m.deletedFor) ? m.deletedFor : [];
+    if (!m.deletedFor.includes(userId)) m.deletedFor.push(userId);
+    return res.json(m);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const unsendMessage = async (req, res) => {
+  try {
+    const messageId = req.params.messageId;
+    if (!messageId) return res.status(400).json({ message: "No messageId" });
+
+    if (isDbConnected() && mongoose.connection.readyState === 1) {
+      const m = await Message.findById(messageId);
+      if (!m) return res.status(404).json({ message: "Not found" });
+      if (String(m.from) !== String(req.user._id)) return res.status(403).json({ message: "Not allowed" });
+      const updated = await Message.findByIdAndUpdate(messageId, { isUnsent: true, text: "" }, { new: true });
+      // notify parties via socket
+      try {
+        const io = req.app?.locals?.io;
+        const userSockets = req.app?.locals?.userSockets;
+        if (io && userSockets && updated) {
+          const socketsFrom = userSockets.get(String(updated.from));
+          const socketsTo = userSockets.get(String(updated.to));
+          const payload = { ...updated.toObject?.() || updated, isUnsent: true };
+          if (socketsFrom) socketsFrom.forEach(sid => io.to(sid).emit('message', payload));
+          if (socketsTo) socketsTo.forEach(sid => io.to(sid).emit('message', payload));
+        }
+      } catch (e) {}
+      return res.json(updated);
+    }
+
+    const m = messageStore.messages.find(x => x._id === messageId);
+    if (!m) return res.status(404).json({ message: "Not found" });
+    if (String(m.from) !== String(req.user._id)) return res.status(403).json({ message: "Not allowed" });
+    m.isUnsent = true;
+    m.text = "";
+    try {
+      const io = req.app?.locals?.io;
+      const userSockets = req.app?.locals?.userSockets;
+      if (io && userSockets && m) {
+        const socketsFrom = userSockets.get(String(m.from));
+        const socketsTo = userSockets.get(String(m.to));
+        if (socketsFrom) socketsFrom.forEach(sid => io.to(sid).emit('message', m));
+        if (socketsTo) socketsTo.forEach(sid => io.to(sid).emit('message', m));
+      }
+    } catch (e) {}
+    return res.json(m);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

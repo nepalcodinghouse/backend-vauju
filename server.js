@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import cors from "cors";
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import matchRoutes from "./routes/matchRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import path from "path";
@@ -10,6 +12,7 @@ import { fileURLToPath } from "url";
 
 dotenv.config();
 connectDB();
+
 
 const app = express();
 app.use(cors());
@@ -21,6 +24,8 @@ const __dirname = path.dirname(__filename);
 
 app.get("/", (req, res) => res.send("💘 HeartConnect API is running..."));
 app.use("/api/auth", authRoutes);
+app.use("/admin", adminRoutes);
+app.use("/api/matches", matchRoutes);
 
 app.use("/api/profile", profileRoutes);
 app.use("/api/messages", messageRoutes);
