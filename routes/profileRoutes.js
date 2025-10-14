@@ -1,11 +1,15 @@
 import express from "express";
-import { getProfile, updateProfile, requireAuth, getMatches } from "../controllers/profileController.js";
+import { getProfile, updateProfile, requireAuth, getMatches, getMessagesUsers, getUserByUsername } from "../controllers/profileController.js";
 
 const router = express.Router();
 
-// All routes require auth
+// Protected routes
 router.get("/", requireAuth, getProfile);
 router.put("/", requireAuth, updateProfile);
 router.get("/matches", requireAuth, getMatches);
+router.get("/messages-users", requireAuth, getMessagesUsers);
+
+// Public route to fetch user by username
+router.get("/users/:username", getUserByUsername);
 
 export default router;
