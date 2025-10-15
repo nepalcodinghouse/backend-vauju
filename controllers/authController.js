@@ -4,12 +4,7 @@ import User from "../models/User.js";
 // Register
 export const registerUser = async (req, res) => {
   try {
-    const { username, name, email, password, captchaVerified } = req.body;
-
-    // Simple verification check
-    if (!captchaVerified) {
-      return res.status(400).json({ message: "CAPTCHA verification required" });
-    }
+    const { username, name, email, password } = req.body;
 
     // Check if user exists
     const existingUser = await User.findOne({ email });
@@ -24,7 +19,7 @@ export const registerUser = async (req, res) => {
       username,
       name,
       email,
-      password: hashedPassword
+      password: hashedPassword,
     });
 
     res.status(201).json({ message: "User registered successfully", user });
