@@ -80,9 +80,15 @@ export class CacheService {
 
   static async invalidateUserProfile(userId) {
     try {
-      const key = KEYS.USER_PROFILE(userId);
-      await redisClient.del(key);
-      console.log(`🗑️ Invalidated profile cache for user: ${userId}`);
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_PROFILE(userId);
+        await redisClient.del(key);
+        console.log(`🗑️ Invalidated profile cache for user: ${userId} (Redis)`);
+      } else {
+        // Fallback to memory
+        memoryStore.cache.delete(KEYS.USER_PROFILE(userId));
+        console.log(`🗑️ Invalidated profile cache for user: ${userId} (Memory)`);
+      }
     } catch (error) {
       console.error('Error invalidating user profile:', error);
     }
@@ -91,9 +97,18 @@ export class CacheService {
   // Matches Caching
   static async cacheMatches(userId, page, matchesData) {
     try {
-      const key = KEYS.USER_MATCHES(userId, page);
-      await redisClient.setEx(key, TTL.USER_MATCHES, JSON.stringify(matchesData));
-      console.log(`📝 Cached matches for user: ${userId}, page: ${page}`);
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_MATCHES(userId, page);
+        await redisClient.setEx(key, TTL.USER_MATCHES, JSON.stringify(matchesData));
+        console.log(`📝 Cached matches for user: ${userId}, page: ${page} (Redis)`);
+      } else {
+        // Fallback to memory
+        memoryStore.cache.set(KEYS.USER_MATCHES(userId, page), {
+          data: matchesData,
+          expires: Date.now() + (TTL.USER_MATCHES * 1000)
+        });
+        console.log(`📝 Cached matches for user: ${userId}, page: ${page} (Memory)`);
+      }
     } catch (error) {
       console.error('Error caching matches:', error);
     }
@@ -101,11 +116,23 @@ export class CacheService {
 
   static async getMatches(userId, page) {
     try {
-      const key = KEYS.USER_MATCHES(userId, page);
-      const cached = await redisClient.get(key);
-      if (cached) {
-        console.log(`📖 Retrieved cached matches for user: ${userId}, page: ${page}`);
-        return JSON.parse(cached);
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_MATCHES(userId, page);
+        const cached = await redisClient.get(key);
+        if (cached) {
+          console.log(`📖 Retrieved cached matches for user: ${userId}, page: ${page} (Redis)`);
+          return JSON.parse(cached);
+        }
+      } else {
+        // Fallback to memory
+        const key = KEYS.USER_MATCHES(userId, page);
+        const cached = memoryStore.cache.get(key);
+        if (cached && cached.expires > Date.now()) {
+          console.log(`📖 Retrieved cached matches for user: ${userId}, page: ${page} (Memory)`);
+          return cached.data;
+        } else if (cached) {
+          memoryStore.cache.delete(key); // Remove expired
+        }
       }
       return null;
     } catch (error) {
@@ -234,23 +261,37 @@ export class CacheService {
 
   static async setUserOffline(userId) {
     try {
-      // Remove from online users set
-      await redisClient.sRem(KEYS.ONLINE_USERS, userId);
-      
-      // Update presence status
-      const presenceData = {
-        userId,
-        timestamp: Date.now(),
-        status: 'offline'
-      };
-      
-      await redisClient.setEx(
-        KEYS.USER_PRESENCE(userId), 
-        TTL.PRESENCE, 
-        JSON.stringify(presenceData)
-      );
-      
-      console.log(`🔴 User ${userId} set offline`);
+      if (redisClient.isConnected()) {
+        // Remove from online users set
+        await redisClient.sRem(KEYS.ONLINE_USERS, userId);
+        
+        // Update presence status
+        const presenceData = {
+          userId,
+          timestamp: Date.now(),
+          status: 'offline'
+        };
+        
+        await redisClient.setEx(
+          KEYS.USER_PRESENCE(userId), 
+          TTL.PRESENCE, 
+          JSON.stringify(presenceData)
+        );
+        
+        console.log(`🔴 User ${userId} set offline (Redis)`);
+      } else {
+        // Fallback to memory
+        memoryStore.onlineUsers.delete(userId);
+        memoryStore.cache.set(KEYS.USER_PRESENCE(userId), {
+          data: {
+            userId,
+            timestamp: Date.now(),
+            status: 'offline'
+          },
+          expires: Date.now() + (TTL.PRESENCE * 1000)
+        });
+        console.log(`🔴 User ${userId} set offline (Memory)`);
+      }
       return true;
     } catch (error) {
       console.error('Error setting user offline:', error);
@@ -290,9 +331,21 @@ export class CacheService {
 
   static async getUserPresence(userId) {
     try {
-      const key = KEYS.USER_PRESENCE(userId);
-      const presence = await redisClient.get(key);
-      return presence ? JSON.parse(presence) : null;
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_PRESENCE(userId);
+        const presence = await redisClient.get(key);
+        return presence ? JSON.parse(presence) : null;
+      } else {
+        // Fallback to memory
+        const key = KEYS.USER_PRESENCE(userId);
+        const cached = memoryStore.cache.get(key);
+        if (cached && cached.expires > Date.now()) {
+          return cached.data;
+        } else if (cached) {
+          memoryStore.cache.delete(key); // Remove expired
+        }
+        return null;
+      }
     } catch (error) {
       console.error('Error getting user presence:', error);
       return null;
@@ -334,8 +387,17 @@ export class CacheService {
   // General Cache Management
   static async clearAllCache() {
     try {
-      await redisClient.flushDb();
-      console.log('🗑️ Cleared all Redis cache');
+      if (redisClient.isConnected()) {
+        await redisClient.flushDb();
+        console.log('🗑️ Cleared all Redis cache');
+      } else {
+        // Clear memory cache
+        memoryStore.cache.clear();
+        memoryStore.sets.clear();
+        memoryStore.lists.clear();
+        memoryStore.onlineUsers.clear();
+        console.log('🗑️ Cleared all memory cache');
+      }
     } catch (error) {
       console.error('Error clearing all cache:', error);
     }
@@ -343,15 +405,35 @@ export class CacheService {
 
   static async getCacheStats() {
     try {
-      const info = await redisClient.info('memory');
-      const keyspace = await redisClient.info('keyspace');
-      return {
-        memory: info,
-        keyspace: keyspace
-      };
+      if (redisClient.isConnected()) {
+        const info = await redisClient.info('memory');
+        const keyspace = await redisClient.info('keyspace');
+        return {
+          connected: true,
+          type: 'redis',
+          memory: info,
+          keyspace: keyspace
+        };
+      } else {
+        // Memory cache stats
+        return {
+          connected: false,
+          type: 'memory',
+          stats: {
+            cacheSize: memoryStore.cache.size,
+            onlineUsers: memoryStore.onlineUsers.size,
+            sets: memoryStore.sets.size,
+            lists: memoryStore.lists.size
+          }
+        };
+      }
     } catch (error) {
       console.error('Error getting cache stats:', error);
-      return null;
+      return {
+        connected: false,
+        type: 'error',
+        error: error.message
+      };
     }
   }
 }
