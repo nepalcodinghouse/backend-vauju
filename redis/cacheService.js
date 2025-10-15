@@ -1,5 +1,13 @@
 import redisClient from './redisClient.js';
 
+// In-memory fallback when Redis is unavailable
+const memoryStore = {
+  cache: new Map(),
+  sets: new Map(),
+  lists: new Map(),
+  onlineUsers: new Set()
+};
+
 // Cache keys
 const KEYS = {
   USER_PROFILE: (userId) => `user:profile:${userId}`,
@@ -26,9 +34,18 @@ export class CacheService {
   // User Profile Caching
   static async cacheUserProfile(userId, profileData) {
     try {
-      const key = KEYS.USER_PROFILE(userId);
-      await redisClient.setEx(key, TTL.USER_PROFILE, JSON.stringify(profileData));
-      console.log(`📝 Cached profile for user: ${userId}`);
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_PROFILE(userId);
+        await redisClient.setEx(key, TTL.USER_PROFILE, JSON.stringify(profileData));
+        console.log(`📝 Cached profile for user: ${userId} (Redis)`);
+      } else {
+        // Fallback to memory
+        memoryStore.cache.set(KEYS.USER_PROFILE(userId), {
+          data: profileData,
+          expires: Date.now() + (TTL.USER_PROFILE * 1000)
+        });
+        console.log(`📝 Cached profile for user: ${userId} (Memory)`);
+      }
     } catch (error) {
       console.error('Error caching user profile:', error);
     }
@@ -36,11 +53,23 @@ export class CacheService {
 
   static async getUserProfile(userId) {
     try {
-      const key = KEYS.USER_PROFILE(userId);
-      const cached = await redisClient.get(key);
-      if (cached) {
-        console.log(`📖 Retrieved cached profile for user: ${userId}`);
-        return JSON.parse(cached);
+      if (redisClient.isConnected()) {
+        const key = KEYS.USER_PROFILE(userId);
+        const cached = await redisClient.get(key);
+        if (cached) {
+          console.log(`📖 Retrieved cached profile for user: ${userId} (Redis)`);
+          return JSON.parse(cached);
+        }
+      } else {
+        // Fallback to memory
+        const key = KEYS.USER_PROFILE(userId);
+        const cached = memoryStore.cache.get(key);
+        if (cached && cached.expires > Date.now()) {
+          console.log(`📖 Retrieved cached profile for user: ${userId} (Memory)`);
+          return cached.data;
+        } else if (cached) {
+          memoryStore.cache.delete(key); // Remove expired
+        }
       }
       return null;
     } catch (error) {
@@ -163,24 +192,39 @@ export class CacheService {
   // Online Presence Management
   static async setUserOnline(userId, socketId = null) {
     try {
-      // Add to online users set
-      await redisClient.sAdd(KEYS.ONLINE_USERS, userId);
-      
-      // Set individual user presence with timestamp
-      const presenceData = {
-        userId,
-        timestamp: Date.now(),
-        socketId: socketId || null,
-        status: 'online'
-      };
-      
-      await redisClient.setEx(
-        KEYS.USER_PRESENCE(userId), 
-        TTL.PRESENCE, 
-        JSON.stringify(presenceData)
-      );
-      
-      console.log(`🟢 User ${userId} set online`);
+      if (redisClient.isConnected()) {
+        // Add to online users set
+        await redisClient.sAdd(KEYS.ONLINE_USERS, userId);
+        
+        // Set individual user presence with timestamp
+        const presenceData = {
+          userId,
+          timestamp: Date.now(),
+          socketId: socketId || null,
+          status: 'online'
+        };
+        
+        await redisClient.setEx(
+          KEYS.USER_PRESENCE(userId), 
+          TTL.PRESENCE, 
+          JSON.stringify(presenceData)
+        );
+        
+        console.log(`🟢 User ${userId} set online (Redis)`);
+      } else {
+        // Fallback to memory
+        memoryStore.onlineUsers.add(userId);
+        memoryStore.cache.set(KEYS.USER_PRESENCE(userId), {
+          data: {
+            userId,
+            timestamp: Date.now(),
+            socketId: socketId || null,
+            status: 'online'
+          },
+          expires: Date.now() + (TTL.PRESENCE * 1000)
+        });
+        console.log(`🟢 User ${userId} set online (Memory)`);
+      }
       return true;
     } catch (error) {
       console.error('Error setting user online:', error);
@@ -216,8 +260,13 @@ export class CacheService {
 
   static async isUserOnline(userId) {
     try {
-      const isOnline = await redisClient.sIsMember(KEYS.ONLINE_USERS, userId);
-      return isOnline;
+      if (redisClient.isConnected()) {
+        const isOnline = await redisClient.sIsMember(KEYS.ONLINE_USERS, userId);
+        return isOnline;
+      } else {
+        // Fallback to memory
+        return memoryStore.onlineUsers.has(userId);
+      }
     } catch (error) {
       console.error('Error checking if user is online:', error);
       return false;
@@ -226,8 +275,13 @@ export class CacheService {
 
   static async getOnlineUsers() {
     try {
-      const onlineUsers = await redisClient.sMembers(KEYS.ONLINE_USERS);
-      return onlineUsers;
+      if (redisClient.isConnected()) {
+        const onlineUsers = await redisClient.sMembers(KEYS.ONLINE_USERS);
+        return onlineUsers;
+      } else {
+        // Fallback to memory
+        return Array.from(memoryStore.onlineUsers);
+      }
     } catch (error) {
       console.error('Error getting online users:', error);
       return [];
