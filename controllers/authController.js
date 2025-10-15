@@ -4,7 +4,12 @@ import User from "../models/User.js";
 // Register
 export const registerUser = async (req, res) => {
   try {
-    const { username ,name, email, password } = req.body;
+    const { username, name, email, password, captchaVerified } = req.body;
+
+    // Simple verification check
+    if (!captchaVerified) {
+      return res.status(400).json({ message: "CAPTCHA verification required" });
+    }
 
     // Check if user exists
     const existingUser = await User.findOne({ email });

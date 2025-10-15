@@ -1,6 +1,7 @@
 import Message from "../models/Message.js";
 import mongoose from "mongoose";
 import { isDbConnected } from "../config/db.js";
+import { CacheService } from "../redis/cacheService.js";
 
 // Minimal in-memory store for messages/presence when DB is absent
 const messageStore = { messages: [], presence: {} };
@@ -13,14 +14,25 @@ export const sendMessage = async (req, res) => {
 
     if (isDbConnected() && mongoose.connection.readyState === 1) {
       let m = await Message.create({ from: req.user._id, to, text });
+      
       // auto-mark seen if sender == recipient (messaging self)
       if (String(req.user._id) === String(to)) {
         m = await Message.findByIdAndUpdate(m._id, { seen: true }, { new: true });
       }
-      // if recipient online, mark seen immediately
-      if (isUserOnline(String(to))) {
+      
+      // Check if recipient is online using Redis
+      const isRecipientOnline = await CacheService.isUserOnline(String(to));
+      if (isRecipientOnline) {
         m = await Message.findByIdAndUpdate(m._id, { seen: true }, { new: true });
       }
+      
+      // Cache the message in Redis for faster retrieval
+      const conversationId = [String(req.user._id), String(to)].sort().join(':');
+      await CacheService.addMessageToCache(conversationId, m);
+      
+      // Invalidate conversation cache
+      await CacheService.invalidateConversation(String(req.user._id), String(to));
+      
       // emit socket event to recipient and sender if connected (mirror to all devices)
       try {
         const io = req.app?.locals?.io;
@@ -32,6 +44,7 @@ export const sendMessage = async (req, res) => {
           if (fromSockets) fromSockets.forEach(sid => io.to(sid).emit('message', m));
         }
       } catch (e) { /* ignore */ }
+      
       return res.json(m);
     }
 
@@ -41,7 +54,8 @@ export const sendMessage = async (req, res) => {
       msg.seen = true;
     }
     // if recipient online, mark seen
-    if (isUserOnline(String(to))) {
+    const isRecipientOnlineMemory = await isUserOnline(String(to));
+    if (isRecipientOnlineMemory) {
       msg.seen = true;
     }
     messageStore.messages.push(msg);
@@ -68,11 +82,23 @@ export const getConversation = async (req, res) => {
     if (!otherId) return res.status(400).json({ message: "No userId" });
 
     if (isDbConnected() && mongoose.connection.readyState === 1) {
+      // Try to get from Redis cache first
+      const cachedConversation = await CacheService.getConversation(String(req.user._id), String(otherId));
+      if (cachedConversation) {
+        return res.json(cachedConversation);
+      }
+      
+      // If not in cache, get from database
       const raw = await Message.find({ $or: [
         { from: req.user._id, to: otherId },
         { from: otherId, to: req.user._id }
       ]}).sort({ createdAt: 1 });
+      
       const msgs = raw.filter(m => !m.deletedFor?.some(u => String(u) === String(req.user._id)));
+      
+      // Cache the conversation for future requests
+      await CacheService.cacheConversation(String(req.user._id), String(otherId), msgs);
+      
       return res.json(msgs);
     }
 
@@ -128,22 +154,27 @@ export const markSeen = async (req, res) => {
 
 export const heartbeat = async (req, res) => {
   try {
-    // mark user as online with timestamp
-    const id = req.user._id;
+    const userId = String(req.user._id);
+    
+    // Update user's online status in Redis
+    await CacheService.setUserOnline(userId);
+    
+    // Also keep the old in-memory approach for fallback
     if (isDbConnected() && mongoose.connection.readyState === 1) {
-      // for now we just return ok; a production app would update lastSeen on the user doc
-      // also, broadcast presence online for connected sockets context
+      // Broadcast presence online for connected sockets context
       try {
         const io = req.app?.locals?.io;
-        if (io) io.emit('presence', { userId: String(id), online: true });
+        if (io) io.emit('presence', { userId, online: true });
       } catch (e) {}
       return res.json({ ok: true });
     }
-    messageStore.presence[id] = Date.now();
+    
+    messageStore.presence[userId] = Date.now();
     try {
       const io = req.app?.locals?.io;
-      if (io) io.emit('presence', { userId: String(id), online: true });
+      if (io) io.emit('presence', { userId, online: true });
     } catch (e) {}
+    
     return res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -220,7 +251,12 @@ export const unsendMessage = async (req, res) => {
   }
 };
 
-export const isUserOnline = (userId) => {
+export const isUserOnline = async (userId) => {
+  // First check Redis
+  const isOnlineRedis = await CacheService.isUserOnline(String(userId));
+  if (isOnlineRedis) return true;
+  
+  // Fallback to in-memory store
   const ts = messageStore.presence[userId];
   if (!ts) return false;
   return (Date.now() - ts) <= PRESENCE_TTL_MS;

@@ -25,8 +25,9 @@
     "express": "^5.1.0",
     "mongoose": "^8.19.1",
     "multer": "^1.4.5-lts.1",
-  "socket.io": "^4.8.1",
-    "react-hot-toast": "^2.6.0"
+    "react-hot-toast": "^2.6.0",
+    "redis": "^5.8.3",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
