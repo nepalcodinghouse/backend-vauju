@@ -1,54 +1,19 @@
 import express from "express";
-import { CacheService } from "../redis/cacheService.js";
+import { _exported_messageStore } from "../controllers/messageController.js";
 
 const router = express.Router();
-
-// Get cache statistics
-router.get("/cache/stats", async (req, res) => {
-  try {
-    const stats = await CacheService.getCacheStats();
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get cache stats",
-      error: error.message
-    });
-  }
-});
-
-// Clear all cache (admin only)
-router.delete("/cache/clear", async (req, res) => {
-  try {
-    await CacheService.clearAllCache();
-    res.json({
-      success: true,
-      message: "Cache cleared successfully"
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to clear cache",
-      error: error.message
-    });
-  }
-});
 
 // Get presence statistics
 router.get("/presence/stats", async (req, res) => {
   try {
     const presenceService = req.app.locals.presenceService;
-    if (!presenceService) {
-      return res.status(503).json({
-        success: false,
-        message: "Presence service not available"
-      });
-    }
+    const stats = presenceService
+      ? await presenceService.getPresenceStats()
+      : {
+          onlineCount: Object.keys(_exported_messageStore.presence).length,
+          lastSeen: _exported_messageStore.presence,
+        };
 
-    const stats = await presenceService.getPresenceStats();
     res.json({
       success: true,
       data: stats
@@ -65,7 +30,11 @@ router.get("/presence/stats", async (req, res) => {
 // Get online users list
 router.get("/presence/online", async (req, res) => {
   try {
-    const onlineUsers = await CacheService.getOnlineUsers();
+    const now = Date.now();
+    const onlineUsers = Object.entries(_exported_messageStore.presence)
+      .filter(([_, ts]) => now - ts <= 60_000)
+      .map(([userId]) => userId);
+
     res.json({
       success: true,
       data: {
@@ -86,15 +55,15 @@ router.get("/presence/online", async (req, res) => {
 router.get("/presence/user/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const isOnline = await CacheService.isUserOnline(userId);
-    const presence = await CacheService.getUserPresence(userId);
-    
+    const ts = _exported_messageStore.presence[userId];
+    const isOnline = Boolean(ts && (Date.now() - ts <= 60_000));
+
     res.json({
       success: true,
       data: {
         userId,
         isOnline,
-        presence
+        lastSeen: ts || null
       }
     });
   } catch (error) {
@@ -106,19 +75,14 @@ router.get("/presence/user/:userId", async (req, res) => {
   }
 });
 
-// Invalidate user's cache
+// Invalidate user's cache (no Redis, just placeholder)
 router.delete("/cache/user/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    
-    // Invalidate all cache entries for this user
-    await CacheService.invalidateUserProfile(userId);
-    await CacheService.invalidateAllMatches(userId);
-    await CacheService.invalidateUserSession(userId);
-    
+    // With Redis removed, just return success
     res.json({
       success: true,
-      message: `Cache invalidated for user ${userId}`
+      message: `Cache invalidation skipped for user ${userId} (Redis removed)`
     });
   } catch (error) {
     res.status(500).json({
@@ -132,20 +96,16 @@ router.delete("/cache/user/:userId", async (req, res) => {
 // Health check endpoint
 router.get("/health", async (req, res) => {
   try {
-    // Check Redis connection
-    const cacheStats = await CacheService.getCacheStats();
     const presenceService = req.app.locals.presenceService;
-    
     const health = {
       status: "healthy",
       timestamp: new Date().toISOString(),
       services: {
-        redis: cacheStats ? "connected" : "disconnected",
         presence: presenceService ? "active" : "inactive",
         socketIO: req.app.locals.io ? "active" : "inactive"
       }
     };
-    
+
     res.json({
       success: true,
       data: health
@@ -156,7 +116,6 @@ router.get("/health", async (req, res) => {
       message: "Health check failed",
       error: error.message,
       services: {
-        redis: "error",
         presence: "error",
         socketIO: "error"
       }
