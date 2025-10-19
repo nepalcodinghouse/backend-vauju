@@ -5,7 +5,7 @@ import cors from "cors";
 import http from "http";
 import { Server as IOServer } from "socket.io";
 
-// Import your routes
+// Import DB + Routes
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
@@ -22,12 +22,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Health check
+// ✅ Health Check
 app.get("/api", (req, res) => {
   res.json({ status: "💘 AuraMeet API is running perfectly!" });
 });
 
-// ✅ API routes
+// ✅ Routes
 app.use("/api/auth", authRoutes);
 app.use("/admin", adminRoutes);
 app.use("/api/matches", matchRoutes);
@@ -36,7 +36,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/system", systemRoutes);
 
-// ✅ HTTP + Socket.IO server
+// ✅ HTTP + Socket.IO Server
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
@@ -47,11 +47,13 @@ const io = new IOServer(server, {
   },
 });
 
+// Track user socket connections
 const userSockets = new Map();
 
 io.on("connection", (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
 
+  // Identify user
   socket.on("identify", (userId) => {
     if (!userId) return;
     const set = userSockets.get(userId) || new Set();
@@ -59,8 +61,12 @@ io.on("connection", (socket) => {
     userSockets.set(userId, set);
     socket.userId = userId;
     console.log(`👤 User ${userId} connected.`);
+    
+    // Broadcast user presence online
+    io.emit("presence", { userId, online: true });
   });
 
+  // Typing Indicator
   socket.on("typing", ({ toUserId, isTyping }) => {
     if (!socket.userId) return;
     const sockets = userSockets.get(toUserId);
@@ -71,6 +77,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Join/Leave Chat Rooms
   socket.on("joinRoom", (roomId) => {
     socket.join(roomId);
     console.log(`👥 User ${socket.userId} joined room: ${roomId}`);
@@ -81,19 +88,34 @@ io.on("connection", (socket) => {
     console.log(`👥 User ${socket.userId} left room: ${roomId}`);
   });
 
+  // Heartbeat for online presence
+  socket.on("heartbeat", () => {
+    if (socket.userId) {
+      io.emit("presence", { userId: socket.userId, online: true });
+    }
+  });
+
+  // Handle disconnect
   socket.on("disconnect", () => {
     console.log(`❌ Socket disconnected: ${socket.id}`);
     if (socket.userId) {
       const set = userSockets.get(socket.userId);
       if (set) {
         set.delete(socket.id);
-        if (set.size === 0) userSockets.delete(socket.userId);
+        if (set.size === 0) {
+          userSockets.delete(socket.userId);
+          io.emit("presence", { userId: socket.userId, online: false });
+        }
       }
     }
   });
 });
 
-// ✅ Start server
+// ✅ Attach socket + user map to Express (so controllers can use it)
+app.locals.io = io;
+app.locals.userSockets = userSockets;
+
+// ✅ Start Server
 server.listen(PORT, () => {
   console.log(`🚀 AuraMeet backend running on port ${PORT}`);
 });
