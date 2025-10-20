@@ -4,7 +4,7 @@ import User from "../models/User.js";
 const router = express.Router();
 
 // GET /api/users/:username
-router.get("/:username", async (req, res) => {
+router.get("/@:username", async (req, res) => {
   try {
     const { username } = req.params;
 
