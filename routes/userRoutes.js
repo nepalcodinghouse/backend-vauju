@@ -3,12 +3,13 @@ import User from "../models/User.js";
 
 const router = express.Router();
 
-// GET /api/users/:id
-router.get("/:id", async (req, res) => {
+// GET /api/users/:username
+router.get("/:username", async (req, res) => {
   try {
-    const { id } = req.params;
+    const { username } = req.params;
 
-    const user = await User.findById(id).select("-password");
+    // Find by username instead of id
+    const user = await User.findOne({ username }).select("-password");
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
