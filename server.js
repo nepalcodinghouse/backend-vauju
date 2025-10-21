@@ -62,6 +62,34 @@ app.use("/api/users", userRoutes);
 app.use("/api/system", systemRoutes);
 app.use("/api/posts", postRoutes);
 
+// Profile by username route (must come after other routes)
+app.get("/@:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username) {
+      return res.status(400).json({ message: "Username required" });
+    }
+
+    const User = (await import("./models/User.js")).default;
+    const user = await User.findOne({ 
+      username: username.toLowerCase().trim() 
+    }).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.suspended) {
+      return res.status(403).json({ message: "This user is suspended" });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("Get user by username error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // =====================
 // HTTP + Socket.IO Server
 // =====================
