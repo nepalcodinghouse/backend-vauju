@@ -2,22 +2,22 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      required: [true, "Name is required"],
+      trim: true,
+    },
     username: {
       type: String,
       required: [true, "Username is required"],
       unique: true,
       trim: true,
     },
-    name: {
-      type: String,
-      required: [true, "Name is required"],
-      trim: true,
-    },
     email: {
       type: String,
       lowercase: true,
       trim: true,
-      default: "", // safe default
+      default: "",
     },
     password: {
       type: String,
@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
     location: {
       type: String,
       default: "",
+      trim: true,
+    },
+
+    profileImage: {
+      type: String,
+      default: "", // can be a default avatar URL if you want
       trim: true,
     },
 
