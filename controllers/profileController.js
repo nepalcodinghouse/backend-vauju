@@ -176,3 +176,47 @@ export const getMessagesUsers = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// Profile picture upload
+export const uploadProfilePicture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    // For now, we'll store files locally in uploads folder
+    // In production, you'd want to use cloud storage like AWS S3 or Cloudinary
+    const uploadDir = path.resolve('uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const fileExtension = path.extname(req.file.originalname);
+    const fileName = `${req.user._id}_${Date.now()}${fileExtension}`;
+    const filePath = path.join(uploadDir, fileName);
+
+    // Save file to disk
+    fs.writeFileSync(filePath, req.file.buffer);
+
+    const imageUrl = `/uploads/${fileName}`;
+
+    // Update user profile with new image URL
+    if (isDbConnected() && mongoose.connection.readyState === 1) {
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        { profileImage: imageUrl },
+        { new: true, runValidators: true }
+      ).select("-password");
+      
+      return res.json({ url: imageUrl, user });
+    }
+
+    // Dev fallback
+    req.user.profileImage = imageUrl;
+    res.json({ url: imageUrl, user: req.user });
+
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ message: err.message || 'Failed to upload image' });
+  }
+};

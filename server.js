@@ -15,6 +15,7 @@ import profileRoutes from "./routes/profileRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import systemRoutes from "./routes/systemRoutes.js";
+import postRoutes from "./routes/postRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -22,6 +23,9 @@ connectDB();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
@@ -56,6 +60,7 @@ app.use("/api/profile", profileRoutes); // protected inside profileRoutes
 app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/system", systemRoutes);
+app.use("/api/posts", postRoutes);
 
 // =====================
 // HTTP + Socket.IO Server
@@ -92,7 +97,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const userId = decoded.id;
+    const userId = decoded._id || decoded.id;
     socket.userId = userId;
 
     // Track user's sockets

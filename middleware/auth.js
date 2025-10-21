@@ -14,8 +14,14 @@ export const auth = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Handle both _id and id fields for backwards compatibility
+    const userId = decoded._id || decoded.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized: No user ID in token" });
+    }
 
-    const user = await User.findById(decoded.id).select("-password");
+    const user = await User.findById(userId).select("-password");
     if (!user) return res.status(401).json({ message: "Unauthorized: User not found" });
 
     req.user = user; // attach user to request

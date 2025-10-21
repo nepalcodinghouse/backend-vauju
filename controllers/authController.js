@@ -26,7 +26,7 @@ export const registerUser = async (req, res) => {
     });
 
     // Generate JWT
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ _id: user._id, id: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
     res.status(201).json({
       message: "User registered successfully",
@@ -52,13 +52,39 @@ export const loginUser = async (req, res) => {
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
     // Generate JWT
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ _id: user._id, id: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
     res.status(200).json({
       message: "Login successful",
       user: user.toJSON(),
       token,
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get current user info
+export const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get user profile (alias for getMe)
+export const getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
