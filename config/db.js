@@ -1,24 +1,21 @@
 import mongoose from "mongoose";
 
-let _connected = false;
+let dbConnected = false;
 
 const connectDB = async () => {
   try {
-    if (!process.env.MONGO_URI) {
-      console.warn('MONGO_URI not set — running in in-memory dev mode');
-      _connected = false;
-      return;
-    }
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("🟢 Server: MongoDB Connected");
-    _connected = true;
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    dbConnected = true;
   } catch (err) {
     console.error("❌ MongoDB Connection Failed:", err.message);
-    console.warn('Continuing in in-memory dev mode');
-    _connected = false;
-    // Do not exit — allow the server to run in a dev fallback mode
+    dbConnected = false;
   }
 };
 
-export default connectDB; // default export
-export const isDbConnected = () => _connected;
+export const isDbConnected = () => dbConnected;
+
+export default connectDB;

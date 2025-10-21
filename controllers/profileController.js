@@ -2,6 +2,8 @@ import User from "../models/User.js";
 import mongoose from "mongoose";
 import { isDbConnected } from "../config/db.js";
 import { _exported_messageStore } from "./messageController.js";
+import path from "path";
+import fs from "fs";
 
 // In-memory fallback store
 const devStore = { users: [] };
@@ -18,7 +20,6 @@ export const requireAuth = async (req, res, next) => {
     if (!user) return res.status(401).json({ message: "User not found" });
     req.user = user;
   } else {
-    // dev fallback
     let u = devStore.users.find(x => x._id === userId);
     if (!u) {
       u = { _id: userId, name: `DevUser-${userId}`, email: `dev${userId}@test.com`, visible: false };
@@ -36,7 +37,6 @@ export const getProfile = async (req, res) => {
       const user = await User.findById(req.user._id).select("-password");
       return res.json(user);
     }
-
     const u = devStore.users.find(x => x._id === req.user._id) || req.user;
     res.json(u);
   } catch (err) {
@@ -93,6 +93,41 @@ export const updateProfile = async (req, res) => {
     Object.assign(u, sanitized);
     res.json(u);
 
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/profile/upload
+export const uploadProfileImage = async (req, res) => {
+  try {
+    if (!req.files || !req.files.profileImage) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+    const file = req.files.profileImage;
+    if (!file.mimetype.startsWith("image/")) {
+      return res.status(400).json({ message: "Invalid file type" });
+    }
+
+    const uploadDir = path.join("public", "uploads");
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+    const filename = `${Date.now()}-${file.name}`;
+    const filePath = path.join(uploadDir, filename);
+    await file.mv(filePath);
+
+    if (mongoose.connection.readyState === 1) {
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        { profileImage: `/uploads/${filename}` },
+        { new: true }
+      ).select("-password");
+      return res.json({ url: user.profileImage });
+    }
+
+    // Dev fallback
+    req.user.profileImage = `/uploads/${filename}`;
+    res.json({ url: req.user.profileImage });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
