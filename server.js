@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import http from "http";
 import { Server as IOServer } from "socket.io";
+import jwt from "jsonwebtoken";
 
 // Import DB + Routes
 import connectDB from "./config/db.js";
@@ -14,6 +15,7 @@ import profileRoutes from "./routes/profileRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import systemRoutes from "./routes/systemRoutes.js";
+import User from "./models/User.js";
 
 dotenv.config();
 connectDB();
@@ -50,19 +52,49 @@ const io = new IOServer(server, {
 // Track user socket connections
 const userSockets = new Map();
 
+// JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30";
+
+// Verify token helper
+const verifyToken = (token) => {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+};
+
+// ✅ Socket.IO connection
 io.on("connection", (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
 
-  // Identify user
-  socket.on("identify", (userId) => {
-    if (!userId) return;
+  // Authenticate user via JWT
+  socket.on("authenticate", (token) => {
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      socket.emit("authError", { message: "❌ Invalid or expired token" });
+      socket.disconnect();
+      return;
+    }
+
+    const userId = decoded.id;
+    socket.userId = userId;
+
+    // Track user's sockets
     const set = userSockets.get(userId) || new Set();
     set.add(socket.id);
     userSockets.set(userId, set);
-    socket.userId = userId;
-    console.log(`👤 User ${userId} connected.`);
-    
-    // Broadcast user presence online
+
+    // ✅ Send auth success message to client
+    socket.emit("authSuccess", { 
+      message: "✅ JWT verified! You are now connected.", 
+      userId 
+    });
+
+    // ✅ Log success message on server
+    console.log(`🟢 JWT verified for user ${userId}. Socket ${socket.id} connected.`);
+
+    // Broadcast online presence
     io.emit("presence", { userId, online: true });
   });
 
@@ -77,13 +109,15 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Join/Leave Chat Rooms
+  // Join / Leave Chat Rooms
   socket.on("joinRoom", (roomId) => {
+    if (!socket.userId) return;
     socket.join(roomId);
     console.log(`👥 User ${socket.userId} joined room: ${roomId}`);
   });
 
   socket.on("leaveRoom", (roomId) => {
+    if (!socket.userId) return;
     socket.leave(roomId);
     console.log(`👥 User ${socket.userId} left room: ${roomId}`);
   });
@@ -111,7 +145,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// ✅ Attach socket + user map to Express (so controllers can use it)
+// Attach socket + user map to Express (for controllers)
 app.locals.io = io;
 app.locals.userSockets = userSockets;
 

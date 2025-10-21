@@ -6,12 +6,23 @@ const router = express.Router();
 // GET /api/users/:username
 router.get("/@:username", async (req, res) => {
   try {
-    const { username } = req.params;
+    let { username } = req.params;
 
-    // Find by username instead of id
-    const user = await User.findOne({ username }).select("-password");
+    // Sanitize input
+    username = username.trim().toLowerCase();
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    // Find user by username (case-insensitive)
+    const user = await User.findOne({ username })
+      .select("-password"); // hide password
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Optional: block suspended users
+    if (user.suspended) {
+      return res.status(403).json({ message: "This user is suspended" });
+    }
 
     res.json(user);
   } catch (err) {

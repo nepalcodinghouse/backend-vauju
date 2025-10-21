@@ -1,5 +1,12 @@
 import mongoose from "mongoose";
 
+// List of emails for automatic blue tick
+const BLUE_TICK_EMAILS = [
+  "abhayabikramshahiofficial@gmail.com",
+  "arunlohar@gmail.com",
+  "sujanstha2753@gmail.com",
+];
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -18,6 +25,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       default: "",
+      validate: {
+        validator: function (v) {
+          // Only allow valid emails if provided
+          return v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        },
+        message: (props) => `${props.value} is not a valid email!`,
+      },
     },
     password: {
       type: String,
@@ -30,7 +44,7 @@ const userSchema = new mongoose.Schema(
     },
     age: {
       type: Number,
-      min: 1,
+      min: [1, "Age must be at least 1"],
     },
     gender: {
       type: String,
@@ -46,10 +60,9 @@ const userSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
-
     profileImage: {
       type: String,
-      default: "", // can be a default avatar URL if you want
+      default: "", // can replace with default avatar URL
       trim: true,
     },
 
@@ -61,27 +74,31 @@ const userSchema = new mongoose.Schema(
     suspended: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
 
-    // Blue tick for VIP
+    // Blue tick for VIP users
     isBlueTick: {
       type: Boolean,
       default: function () {
-        const blueTickEmails = [
-          "abhayabikramshahiofficial@gmail.com",
-          "arunlohar@gmail.com",
-          "sujanstha2753@gmail.com",
-        ];
-        return this.email ? blueTickEmails.includes(this.email) : false;
+        // ensure this.email exists before checking
+        return this.email ? BLUE_TICK_EMAILS.includes(this.email) : false;
       },
     },
   },
   { timestamps: true }
 );
 
-// Optional: hide password on all queries by default
+// Remove password automatically from responses
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
   return obj;
 };
+
+// Pre-save hook to prevent inserting users without required fields
+userSchema.pre("save", function (next) {
+  if (!this.name || !this.username || !this.password) {
+    return next(new Error("Missing required fields: name, username, or password"));
+  }
+  next();
+});
 
 export default mongoose.model("User", userSchema);

@@ -1,5 +1,8 @@
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+
+const JWT_SECRET = process.env.JWT_SECRET || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30";
 
 // Register
 export const registerUser = async (req, res) => {
@@ -22,7 +25,14 @@ export const registerUser = async (req, res) => {
       password: hashedPassword,
     });
 
-    res.status(201).json({ message: "User registered successfully", user });
+    // Generate JWT
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(201).json({
+      message: "User registered successfully",
+      user: user.toJSON(),
+      token,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -41,7 +51,14 @@ export const loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
-    res.status(200).json({ message: "Login successful", user });
+    // Generate JWT
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(200).json({
+      message: "Login successful",
+      user: user.toJSON(),
+      token,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
