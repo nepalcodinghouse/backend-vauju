@@ -41,7 +41,7 @@ app.use(
 );
 
 // Enable preflight for all routes
-app.options('*', cors());
+app.options(/.* /, cors());
 
 
 // Serve static files from uploads directory
