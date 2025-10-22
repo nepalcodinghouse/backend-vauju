@@ -1,13 +1,28 @@
-// models/Match.js
-import mongoose from "mongoose";
+import express from "express";
+import User from "../models/User.js"; // use your User model
 
-const matchSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  age: { type: Number },
-  gender: { type: String },
-  interests: [String],
-  createdAt: { type: Date, default: Date.now },
+const router = express.Router();
+
+// GET /api/matches
+router.get("/", async (req, res) => {
+  try {
+    // Fetch some sample matches (you can limit or sort as needed)
+    const matches = await User.find({ visible: true }).limit(10).lean();
+
+    // Ensure our VIP user is included and marked verified
+    const vipUserEmail = "abhayabikramshahiofficial@gmail.com";
+    const vipUser = await User.findOne({ email: vipUserEmail }).lean();
+
+    if (vipUser && !matches.find((m) => m.email === vipUserEmail)) {
+      vipUser.isVerified = true; // force verified/blue tick
+      matches.unshift(vipUser); // add VIP user at the top
+    }
+
+    res.json(matches);
+  } catch (err) {
+    console.error("Error fetching matches:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
-const Match = mongoose.model("Match", matchSchema);
-export default Match;
+export default router;
