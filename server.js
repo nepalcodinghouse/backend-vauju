@@ -24,7 +24,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 // Enable CORS for the frontend during development
-const allowedOrigins = ['http://localhost:5173'];
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://vauju.vercel.app",
+];
 
 app.use(
   cors({
