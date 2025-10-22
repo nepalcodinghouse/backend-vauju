@@ -23,6 +23,26 @@ connectDB();
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Enable CORS for the frontend during development
+const allowedOrigins = ['http://localhost:5173'];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. curl, mobile apps, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('CORS policy: Origin not allowed'), false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+  })
+);
+
+// Enable preflight for all routes
+app.options('*', cors());
+
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
