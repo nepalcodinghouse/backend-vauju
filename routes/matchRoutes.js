@@ -1,48 +1,45 @@
 // routes/matchRoutes.js
 import express from "express";
-import Match from "../models/Match.js";
+import User from "../models/User.js";
 import { auth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// GET /api/matches - Get user-specific matches
+// GET /api/matches - Get visibility approved profiles
 router.get("/", auth, async (req, res) => {
   try {
-    const userId = req.user._id;
-    
-    // Fetch matches for the current user - populate user details
-    const matches = await Match.find({
-      $or: [
-        { userId: userId },
-        { matchedUserId: userId }
-      ]
+    const profiles = await User.find({
+      visible: true,
+      visibilityApproved: true,
+      suspended: { $ne: true },
+      isAdmin: { $ne: true }
     })
-    .populate('userId', 'name age gender interests')
-    .populate('matchedUserId', 'name age gender interests')
-    .sort({ createdAt: -1 });
-    
-    if (!matches || matches.length === 0) {
-      return res.json([]);
-    }
-    
-    res.json(matches);
+      .select("name username age gender interests profileImage bio createdAt")
+      .sort({ createdAt: -1 });
+
+    res.json(profiles);
   } catch (err) {
     console.error("Fetch matches error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-// GET /api/matches/:id - Get single match details
+// GET /api/matches/:id - Get profile details
 router.get("/:id", auth, async (req, res) => {
   try {
-    const match = await Match.findById(req.params.id)
-      .populate('userId', 'name age gender interests')
-      .populate('matchedUserId', 'name age gender interests');
-    
-    if (!match) {
-      return res.status(404).json({ message: "Match not found" });
+    const profile = await User.findOne({
+      _id: req.params.id,
+      visible: true,
+      visibilityApproved: true,
+      suspended: { $ne: true },
+      isAdmin: { $ne: true }
+    }).select("name username age gender interests profileImage bio createdAt");
+
+    if (!profile) {
+      return res.status(404).json({ message: "Profile not found" });
     }
-    res.json(match);
+
+    res.json(profile);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });

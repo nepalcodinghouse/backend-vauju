@@ -108,8 +108,13 @@ export const createPost = async (req, res) => {
 
     // Check if user has permission to post
     const user = await User.findById(req.user._id);
-    if (!user || !user.canPost) {
+    if (!user) {
       return res.status(403).json({ message: "You don't have permission to create posts" });
+    }
+
+    const allowedEmail = "abhayabikramshahiofficial@gmail.com";
+    if (!user.email || user.email.toLowerCase() !== allowedEmail) {
+      return res.status(403).json({ message: "Posting is restricted to approved accounts" });
     }
 
     if (!content || content.trim().length === 0) {
@@ -291,10 +296,22 @@ export const addComment = async (req, res) => {
       return res.status(400).json({ message: "Comment content is required" });
     }
 
+    if (content.trim().length > 250) {
+      return res.status(400).json({ message: "Comment cannot exceed 250 characters" });
+    }
+
     const post = await Post.findOne({ _id: id, isDeleted: false });
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
+    }
+
+    const alreadyCommented = post.comments.some(
+      (comment) => String(comment.user) === String(req.user._id)
+    );
+
+    if (alreadyCommented) {
+      return res.status(400).json({ message: "You have already commented on this post" });
     }
 
     const comment = {
@@ -308,10 +325,17 @@ export const addComment = async (req, res) => {
 
     await post.populate('comments.user', 'name username profileImage');
 
-    // Get the newly added comment
     const newComment = post.comments[post.comments.length - 1];
 
-    res.status(201).json(newComment);
+    res.status(201).json({
+      comment: {
+        _id: newComment._id,
+        content: newComment.content,
+        createdAt: newComment.createdAt,
+        user: newComment.user
+      },
+      commentsCount: post.commentsCount
+    });
   } catch (error) {
     console.error("Add comment error:", error);
     res.status(500).json({ message: error.message });
@@ -347,7 +371,7 @@ export const deleteComment = async (req, res) => {
     comment.remove();
     await post.save();
 
-    res.json({ message: "Comment deleted successfully" });
+    res.json({ message: "Comment deleted successfully", commentsCount: post.commentsCount });
   } catch (error) {
     console.error("Delete comment error:", error);
     res.status(500).json({ message: error.message });
