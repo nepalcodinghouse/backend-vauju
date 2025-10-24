@@ -82,6 +82,15 @@ const userSchema = new mongoose.Schema(
         return this.email ? BLUE_TICK_EMAILS.includes(this.email) : false;
       },
     },
+
+    // Post permissions
+    canPost: {
+      type: Boolean,
+      default: function () {
+        // Users with blue tick can post by default
+        return this.email ? BLUE_TICK_EMAILS.includes(this.email) : false;
+      },
+    },
   },
   { timestamps: true }
 );

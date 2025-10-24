@@ -139,6 +139,20 @@ const verifyToken = (token) => {
 io.on("connection", (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
 
+  // Handle identify event (from frontend Messages component)
+  socket.on("identify", (userId) => {
+    if (!userId) return;
+    socket.userId = userId;
+    
+    // Track user's sockets
+    const set = userSockets.get(userId) || new Set();
+    set.add(socket.id);
+    userSockets.set(userId, set);
+    
+    console.log(`✅ User ${userId} identified. Socket ${socket.id} tracked.`);
+    io.emit("presence", { userId, online: true });
+  });
+
   // JWT auth for socket
   socket.on("authenticate", (token) => {
     const decoded = verifyToken(token);
@@ -193,6 +207,23 @@ io.on("connection", (socket) => {
   // Heartbeat for online presence
   socket.on("heartbeat", () => {
     if (socket.userId) io.emit("presence", { userId: socket.userId, online: true });
+  });
+
+  // Handle match notification
+  socket.on("matchNotification", (data) => {
+    if (!socket.userId) return;
+    // Broadcast to specific user
+    const recipientSockets = userSockets.get(data.recipientId);
+    if (recipientSockets) {
+      recipientSockets.forEach(sid => {
+        io.to(sid).emit("matchNotification", {
+          from: socket.userId,
+          message: data.message || "New match!",
+          matchData: data.matchData,
+          timestamp: new Date()
+        });
+      });
+    }
   });
 
   // Handle disconnect

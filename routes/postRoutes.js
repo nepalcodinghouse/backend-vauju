@@ -3,6 +3,7 @@ import {
   createPost, 
   getPosts, 
   getPost, 
+  getPostsByUser,
   updatePost, 
   deletePost, 
   likePost, 
@@ -16,6 +17,7 @@ const router = express.Router();
 
 // Public routes
 router.get("/", getPosts); // Get all posts (feed)
+router.get("/user/:userId", getPostsByUser); // Get posts by specific user
 
 // Protected routes
 router.use(auth); // Apply auth middleware to all routes below

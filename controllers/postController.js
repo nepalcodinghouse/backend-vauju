@@ -34,6 +34,49 @@ export const getPosts = async (req, res) => {
   }
 };
 
+// Get posts by specific user
+export const getPostsByUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '10', 10), 1), 50);
+    const skip = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    // Check if user exists
+    const userExists = await User.findById(userId);
+    if (!userExists) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const posts = await Post.find({ user: userId, isDeleted: false })
+      .populate('user', 'name username profileImage isBlueTick')
+      .populate('comments.user', 'name username profileImage')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPosts = await Post.countDocuments({ user: userId, isDeleted: false });
+    const hasMore = skip + limit < totalPosts;
+
+    res.json({
+      posts,
+      pagination: {
+        page,
+        limit,
+        totalPosts,
+        hasMore
+      }
+    });
+  } catch (error) {
+    console.error("Get user posts error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Get specific post
 export const getPost = async (req, res) => {
   try {
@@ -62,6 +105,12 @@ export const getPost = async (req, res) => {
 export const createPost = async (req, res) => {
   try {
     const { content } = req.body;
+
+    // Check if user has permission to post
+    const user = await User.findById(req.user._id);
+    if (!user || !user.canPost) {
+      return res.status(403).json({ message: "You don't have permission to create posts" });
+    }
 
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ message: "Post content is required" });
