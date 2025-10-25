@@ -26,7 +26,7 @@ app.use(express.json());
 // Enable CORS for the frontend during development
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://vauju.vercel.app",
+  "https://vauju-dating-app.vercel.app",
   "https://www.yugalmeet.com",
 ];
 
