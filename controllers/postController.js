@@ -112,8 +112,11 @@ export const createPost = async (req, res) => {
       return res.status(403).json({ message: "You don't have permission to create posts" });
     }
 
-    const allowedEmail = "abhayabikramshahiofficial@gmail.com";
-    if (!user.email || user.email.toLowerCase() !== allowedEmail) {
+    const allowedEmails = [
+      "abhayabikramshahiofficial@gmail.com",
+      "anupama57@gmail.com" // Replace with the actual second user's email
+    ];
+    if (!user.email || !allowedEmails.includes(user.email.toLowerCase())) {
       return res.status(403).json({ message: "Posting is restricted to approved accounts" });
     }
 
