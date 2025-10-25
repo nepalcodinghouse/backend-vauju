@@ -27,7 +27,7 @@ app.use(express.json());
 const allowedOrigins = [
   "http://localhost:5173",
   "https://vauju.vercel.app",
-  "https://yugalmeet.com",
+  "https://www.yugalmeet.com",
 ];
 
 app.use(
