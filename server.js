@@ -7,6 +7,9 @@ import { Server as IOServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import connectDB from "./config/db.js";
 
+// Import Models
+import User from "./models/User.js";
+
 // Routes
 import authRoutes from "./routes/authRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
@@ -21,9 +24,8 @@ dotenv.config();
 connectDB();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-// Enable CORS for the frontend during development
+
+// CORS Configuration
 const allowedOrigins = [
   "http://localhost:5173",
   "https://vauju-dating-app.vercel.app",
@@ -33,29 +35,32 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. curl, mobile apps, server-to-server)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error('CORS policy: Origin not allowed'), false);
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS policy: Origin not allowed"), false);
+      }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-user-id"],
   })
 );
 
-// Enable preflight for all routes
-app.options(/.* /, cors());
+// REMOVE THIS LINE:
+// app.options("*", cors());  // THIS CAUSES CRASH
 
+// Middleware
+app.use(express.json());
 
-// Serve static files from uploads directory
-app.use('/uploads', express.static('uploads'));
+// Serve static files
+app.use("/uploads", express.static("uploads"));
 
-// JWT secret
+// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
 
 // =====================
-// Middleware to protect routes
+// Auth Middleware
 // =====================
 export const requireAuth = (req, res, next) => {
   const token = req.headers["x-user-id"];
@@ -71,22 +76,43 @@ export const requireAuth = (req, res, next) => {
 };
 
 // =====================
-// Express routes
+// Routes
 // =====================
+
 app.get("/api", (req, res) => {
-  res.json({ status: "💘 AuraMeet API is running perfectly!" });
+  res.json({ status: "AuraMeet API is running perfectly!" });
 });
 
-app.use("/api/auth", authRoutes);
-app.use("/admin", adminRoutes);
-app.use("/api/matches", matchRoutes);
-app.use("/api/profile", profileRoutes); // protected inside profileRoutes
-app.use("/api/messages", messageRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/system", systemRoutes);
-app.use("/api/posts", postRoutes);
+app.get("/api/random-girl", async (req, res) => {
+  try {
+    const randomGirl = await User.aggregate([
+      { $match: { gender: "female", suspended: { $ne: true } } },
+      { $sample: { size: 1 } },
+      {
+        $project: {
+          name: 1,
+          age: 1,
+          location: 1,
+          profilePic: 1,
+          username: 1,
+          number: 1,
+          bio: 1,
+          interests: 1,
+        },
+      },
+    ]);
 
-// Profile by username route (must come after other routes)
+    if (!randomGirl.length) {
+      return res.status(404).json({ message: "No female users found" });
+    }
+
+    res.json(randomGirl[0]);
+  } catch (error) {
+    console.error("Random girl error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.get("/@:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -94,9 +120,8 @@ app.get("/@:username", async (req, res) => {
       return res.status(400).json({ message: "Username required" });
     }
 
-    const User = (await import("./models/User.js")).default;
-    const user = await User.findOne({ 
-      username: username.toLowerCase().trim() 
+    const user = await User.findOne({
+      username: username.toLowerCase().trim(),
     }).select("-password");
 
     if (!user) {
@@ -114,6 +139,16 @@ app.get("/@:username", async (req, res) => {
   }
 });
 
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/admin", adminRoutes);
+app.use("/api/matches", matchRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/system", systemRoutes);
+app.use("/api/posts", postRoutes);
+
 // =====================
 // HTTP + Socket.IO Server
 // =====================
@@ -121,13 +156,16 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 const io = new IOServer(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
-// Track user socket connections
+// Track connected users
 const userSockets = new Map();
 
-// Helper to verify JWT in Socket.IO
 const verifyToken = (token) => {
   try {
     return jwt.verify(token, JWT_SECRET);
@@ -136,100 +174,79 @@ const verifyToken = (token) => {
   }
 };
 
-// Socket.IO connection
 io.on("connection", (socket) => {
-  console.log(`🔌 Socket connected: ${socket.id}`);
+  console.log(`Socket connected: ${socket.id}`);
 
-  // Handle identify event (from frontend Messages component)
   socket.on("identify", (userId) => {
     if (!userId) return;
     socket.userId = userId;
-    
-    // Track user's sockets
     const set = userSockets.get(userId) || new Set();
     set.add(socket.id);
     userSockets.set(userId, set);
-    
-    console.log(`✅ User ${userId} identified. Socket ${socket.id} tracked.`);
+    console.log(`User ${userId} identified.`);
     io.emit("presence", { userId, online: true });
   });
 
-  // JWT auth for socket
   socket.on("authenticate", (token) => {
     const decoded = verifyToken(token);
     if (!decoded) {
-      socket.emit("authError", { message: "❌ Invalid or expired token" });
+      socket.emit("authError", { message: "Invalid token" });
       socket.disconnect();
       return;
     }
 
     const userId = decoded._id || decoded.id;
     socket.userId = userId;
-
-    // Track user's sockets
     const set = userSockets.get(userId) || new Set();
     set.add(socket.id);
     userSockets.set(userId, set);
 
-    // ✅ Send auth success message
-    socket.emit("authSuccess", {
-      message: "✅ JWT verified! You are now connected.",
-      userId,
-    });
-
-    console.log(`🟢 JWT verified for user ${userId}. Socket ${socket.id} connected.`);
+    socket.emit("authSuccess", { message: "Connected!", userId });
+    console.log(`User ${userId} authenticated.`);
     io.emit("presence", { userId, online: true });
   });
 
-  // Typing indicator
   socket.on("typing", ({ toUserId, isTyping }) => {
     if (!socket.userId) return;
     const sockets = userSockets.get(toUserId);
     if (sockets) {
-      sockets.forEach((sid) =>
-        io.to(sid).emit("typing", { from: socket.userId, isTyping })
-      );
+      sockets.forEach((sid) => io.to(sid).emit("typing", { from: socket.userId, isTyping }));
     }
   });
 
-  // Join / leave chat rooms
   socket.on("joinRoom", (roomId) => {
     if (!socket.userId) return;
     socket.join(roomId);
-    console.log(`👥 User ${socket.userId} joined room: ${roomId}`);
   });
 
   socket.on("leaveRoom", (roomId) => {
     if (!socket.userId) return;
     socket.leave(roomId);
-    console.log(`👥 User ${socket.userId} left room: ${roomId}`);
   });
 
-  // Heartbeat for online presence
   socket.on("heartbeat", () => {
-    if (socket.userId) io.emit("presence", { userId: socket.userId, online: true });
+    if (socket.userId) {
+      io.emit("presence", { userId: socket.userId, online: true });
+    }
   });
 
-  // Handle match notification
   socket.on("matchNotification", (data) => {
     if (!socket.userId) return;
-    // Broadcast to specific user
     const recipientSockets = userSockets.get(data.recipientId);
     if (recipientSockets) {
-      recipientSockets.forEach(sid => {
+      recipientSockets.forEach((sid) => {
         io.to(sid).emit("matchNotification", {
           from: socket.userId,
           message: data.message || "New match!",
           matchData: data.matchData,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
       });
     }
   });
 
-  // Handle disconnect
   socket.on("disconnect", () => {
-    console.log(`❌ Socket disconnected: ${socket.id}`);
+    console.log(`Socket disconnected: ${socket.id}`);
     if (socket.userId) {
       const set = userSockets.get(socket.userId);
       if (set) {
@@ -243,11 +260,11 @@ io.on("connection", (socket) => {
   });
 });
 
-// Attach Socket.IO map to Express
+// Attach to app
 app.locals.io = io;
 app.locals.userSockets = userSockets;
 
-// Start server
+// Start Server
 server.listen(PORT, () => {
-  console.log(`🚀 AuraMeet backend running on port ${PORT}`);
+  console.log(`AuraMeet backend running on port ${PORT}`);
 });
