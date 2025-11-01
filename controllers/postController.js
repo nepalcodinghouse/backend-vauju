@@ -112,10 +112,12 @@ export const createPost = async (req, res) => {
       return res.status(403).json({ message: "You don't have permission to create posts" });
     }
 
+    // Allow 2 specific users to post by their email addresses
     const allowedEmails = [
       "abhayabikramshahiofficial@gmail.com",
-      "anupama57@gmail.com" // Replace with the actual second user's email
+      "anupama57@gmail.com"
     ];
+    
     if (!user.email || !allowedEmails.includes(user.email.toLowerCase())) {
       return res.status(403).json({ message: "Posting is restricted to approved accounts" });
     }
@@ -380,3 +382,4 @@ export const deleteComment = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
