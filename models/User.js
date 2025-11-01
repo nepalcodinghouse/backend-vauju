@@ -1,10 +1,16 @@
 import mongoose from "mongoose";
 
-// List of emails for automatic blue tick
+// List of emails for automatic blue tick and posting permissions
+const PROFESSIONAL_EMAILS = [
+  "abhayabikramshahioffciial@gmail.com",
+  "anupama57@gmail.com"
+];
+
 const BLUE_TICK_EMAILS = [
   "abhayabikramshahiofficial@gmail.com",
   "arunlohar@gmail.com",
   "sujanstha2753@gmail.com",
+  ...PROFESSIONAL_EMAILS // Include professional users in blue tick list as well
 ];
 
 const userSchema = new mongoose.Schema(
@@ -87,7 +93,7 @@ const userSchema = new mongoose.Schema(
     canPost: {
       type: Boolean,
       default: function () {
-        // Users with blue tick can post by default
+        // Users with blue tick or professional emails can post by default
         return this.email ? BLUE_TICK_EMAILS.includes(this.email) : false;
       },
     },
@@ -107,6 +113,13 @@ userSchema.pre("save", function (next) {
   if (!this.name || !this.username || !this.password) {
     return next(new Error("Missing required fields: name, username, or password"));
   }
+  
+  // Ensure professional users get proper permissions
+  if (this.email && PROFESSIONAL_EMAILS.includes(this.email)) {
+    this.isBlueTick = true;
+    this.canPost = true;
+  }
+  
   next();
 });
 

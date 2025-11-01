@@ -6,6 +6,15 @@ import http from "http";
 import { Server as IOServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import connectDB from "./config/db.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Get the directory name in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(__dirname, ".env") });
 
 // Import Models
 import User from "./models/User.js";
@@ -20,7 +29,6 @@ import userRoutes from "./routes/userRoutes.js";
 import systemRoutes from "./routes/systemRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
 
-dotenv.config();
 connectDB();
 
 const app = express();
@@ -56,14 +64,34 @@ app.use(express.json());
 // Serve static files
 app.use("/uploads", express.static("uploads"));
 
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
+// JWT Secret - no fallback default for security
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// If JWT_SECRET is not set, log an error and exit
+if (!JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables");
+  console.error("Current working directory:", process.cwd());
+  console.error("Expected .env file path:", path.resolve(__dirname, ".env"));
+  console.error("Environment variables:", Object.keys(process.env));
+  process.exit(1);
+}
 
 // =====================
 // Auth Middleware
 // =====================
 export const requireAuth = (req, res, next) => {
-  const token = req.headers["x-user-id"];
+  // Try to get token from Authorization header (standard Bearer token format)
+  let token = null;
+  
+  // Check Authorization header first (standard format)
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+  // Fallback to x-user-id header for backwards compatibility with frontend
+  else if (req.headers["x-user-id"]) {
+    token = req.headers["x-user-id"];
+  }
+  
   if (!token) return res.status(401).json({ message: "No token provided" });
 
   try {
@@ -267,4 +295,5 @@ app.locals.userSockets = userSockets;
 // Start Server
 server.listen(PORT, () => {
   console.log(`AuraMeet backend running on port ${PORT}`);
+  console.log(`JWT_SECRET loaded: ${!!JWT_SECRET}`);
 });

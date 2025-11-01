@@ -1,8 +1,26 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
+// Get the directory name in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+
+// Get JWT_SECRET from environment variables - no fallback default for security
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// If JWT_SECRET is not set, log an error (this will be caught when the module loads)
+if (!JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables in auth controller");
+  console.error("Expected .env file path:", path.resolve(__dirname, "..", ".env"));
+  process.exit(1);
+}
 
 // Register
 export const registerUser = async (req, res) => {
@@ -17,7 +35,7 @@ export const registerUser = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    // Create user - permissions will be set by the pre-save hook in the User model
     const user = await User.create({
       name,
       username,
@@ -56,7 +74,7 @@ export const loginUser = async (req, res) => {
 
     res.status(200).json({
       message: "Login successful",
-      user: user.toJSON(),
+      user: user.toJSON(), // This will include the updated permissions
       token,
     });
   } catch (error) {

@@ -106,20 +106,22 @@ export const createPost = async (req, res) => {
   try {
     const { content } = req.body;
 
-    // Check if user has permission to post
+    // Check if user exists
     const user = await User.findById(req.user._id);
     if (!user) {
-      return res.status(403).json({ message: "You don't have permission to create posts" });
+      return res.status(403).json({ message: "User not found" });
     }
 
-    // Allow 2 specific users to post by their email addresses
-    const allowedEmails = [
-      "abhayabikramshahiofficial@gmail.com",
-      "anupama57@gmail.com"
-    ];
-    
-    if (!user.email || !allowedEmails.includes(user.email.toLowerCase())) {
-      return res.status(403).json({ message: "Posting is restricted to approved accounts" });
+    // Check if user has permission to post
+    // Users with blue tick or canPost flag can post
+    // Additionally, specific professional users can post
+    const professionalUsers = ['abhayabikramshahioffciial@gmail.com', 'anupama57@gmail.com'];
+    const hasPermission = user.isBlueTick || 
+                         user.canPost || 
+                         professionalUsers.includes(user.email);
+
+    if (!hasPermission) {
+      return res.status(403).json({ message: "You don't have permission to create posts" });
     }
 
     if (!content || content.trim().length === 0) {
@@ -382,4 +384,3 @@ export const deleteComment = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
