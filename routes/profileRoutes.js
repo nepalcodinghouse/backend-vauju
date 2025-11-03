@@ -1,5 +1,5 @@
 import express from "express";
-import { getProfile, updateProfile, getMatches, getMessagesUsers, uploadProfilePicture } from "../controllers/profileController.js";
+import { getProfile, updateProfile, getMatches, getMessagesUsers, uploadProfilePicture, deleteProfilePicture } from "../controllers/profileController.js";
 import { auth } from "../middleware/auth.js";
 import multer from "multer";
 
@@ -28,5 +28,8 @@ const upload = multer({
 
 // Profile picture upload
 router.post("/upload", auth, upload.single('profilePic'), uploadProfilePicture);
+
+// Profile picture delete
+router.delete("/upload/:publicId", auth, deleteProfilePicture);
 
 export default router;

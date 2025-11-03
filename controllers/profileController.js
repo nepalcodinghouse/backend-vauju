@@ -4,8 +4,14 @@ import { isDbConnected } from "../config/db.js";
 import { _exported_messageStore } from "./messageController.js";
 import path from "path";
 import fs from "fs";
+import { v2 as cloudinary } from "cloudinary";
 
-// In-memory fallback store
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 const devStore = { users: [] };
 
 // Middleware: require auth
@@ -184,8 +190,73 @@ export const uploadProfilePicture = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // For now, we'll store files locally in uploads folder
-    // In production, you'd want to use cloud storage like AWS S3 or Cloudinary
+    // Check Cloudinary configuration
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      console.warn('⚠️ Cloudinary not configured, using local storage fallback');
+      return uploadProfilePictureLocal(req, res);
+    }
+
+    // Convert buffer to base64 for Cloudinary upload
+    const base64 = req.file.buffer.toString('base64');
+    const dataURI = `data:${req.file.mimetype};base64,${base64}`;
+
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(dataURI, {
+      folder: `vauju-dating-app/profile-pictures`,
+      public_id: `${req.user._id}_${Date.now()}`,
+      resource_type: 'auto',
+      quality: 'auto',
+      fetch_format: 'auto',
+    });
+
+    const imageUrl = result.secure_url;
+    const publicId = result.public_id;
+
+    // Update user profile with Cloudinary URL
+    if (isDbConnected() && mongoose.connection.readyState === 1) {
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        {
+          profileImage: imageUrl,
+          profilePicPublicId: publicId, // Store for deletion later
+        },
+        { new: true, runValidators: true }
+      ).select("-password");
+      
+      return res.json({
+        success: true,
+        url: imageUrl,
+        publicId: publicId,
+        message: "Profile picture updated successfully!",
+        user,
+      });
+    }
+
+    // Dev fallback
+    req.user.profileImage = imageUrl;
+    req.user.profilePicPublicId = publicId;
+    res.json({
+      success: true,
+      url: imageUrl,
+      publicId: publicId,
+      message: "Profile picture updated successfully!",
+      user: req.user,
+    });
+
+  } catch (err) {
+    console.error('Cloudinary upload error:', err);
+    // Fallback to local storage if Cloudinary fails
+    return uploadProfilePictureLocal(req, res);
+  }
+};
+
+// Local storage fallback function
+const uploadProfilePictureLocal = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
     const uploadDir = path.resolve('uploads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -200,7 +271,7 @@ export const uploadProfilePicture = async (req, res) => {
 
     const imageUrl = `/uploads/${fileName}`;
 
-    // Update user profile with new image URL
+    // Update user profile with local URL
     if (isDbConnected() && mongoose.connection.readyState === 1) {
       const user = await User.findByIdAndUpdate(
         req.user._id,
@@ -208,15 +279,79 @@ export const uploadProfilePicture = async (req, res) => {
         { new: true, runValidators: true }
       ).select("-password");
       
-      return res.json({ url: imageUrl, user });
+      return res.json({
+        success: true,
+        url: imageUrl,
+        message: "Profile picture updated successfully (local storage)!",
+        user,
+      });
     }
 
     // Dev fallback
     req.user.profileImage = imageUrl;
-    res.json({ url: imageUrl, user: req.user });
-
+    res.json({
+      success: true,
+      url: imageUrl,
+      message: "Profile picture updated successfully (local storage)!",
+      user: req.user,
+    });
   } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ message: err.message || 'Failed to upload image' });
+    console.error('Local upload error:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to upload image',
+    });
+  }
+};
+
+// Delete profile picture from Cloudinary
+export const deleteProfilePicture = async (req, res) => {
+  try {
+    const { publicId } = req.params;
+
+    if (!publicId) {
+      return res.status(400).json({ message: "Public ID is required" });
+    }
+
+    // Check if Cloudinary is configured
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      return res.status(400).json({
+        success: false,
+        message: "Cloudinary not configured",
+      });
+    }
+
+    // Delete from Cloudinary
+    const result = await cloudinary.uploader.destroy(publicId);
+
+    if (result.result === 'ok') {
+      // Update user to remove profile picture
+      if (isDbConnected() && mongoose.connection.readyState === 1) {
+        await User.findByIdAndUpdate(
+          req.user._id,
+          {
+            profileImage: null,
+            profilePicPublicId: null,
+          },
+          { new: true, runValidators: true }
+        );
+      }
+
+      return res.json({
+        success: true,
+        message: "Profile picture deleted successfully!",
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to delete image from cloud",
+      });
+    }
+  } catch (err) {
+    console.error('Delete profile picture error:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to delete profile picture',
+    });
   }
 };
