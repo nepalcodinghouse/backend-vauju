@@ -16,6 +16,26 @@ const __dirname = path.dirname(__filename);
 // Load environment variables from .env file
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+// Check if MONGODB_URI is defined
+if (!process.env.MONGODB_URI) {
+  console.error("FATAL ERROR: MONGODB_URI is not defined in environment variables");
+  console.error("Current working directory:", process.cwd());
+  console.error("Expected .env file path:", path.resolve(__dirname, ".env"));
+  console.error("Environment variables:", Object.keys(process.env));
+  process.exit(1);
+}
+
+// If JWT_SECRET is not set, log an error and exit
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables");
+  console.error("Current working directory:", process.cwd());
+  console.error("Expected .env file path:", path.resolve(__dirname, ".env"));
+  console.error("Environment variables:", Object.keys(process.env));
+  process.exit(1);
+}
+
 // Import Models
 import User from "./models/User.js";
 
@@ -64,18 +84,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve static files for local uploads
 app.use("/uploads", express.static("uploads"));
-
-// JWT Secret - no fallback default for security
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// If JWT_SECRET is not set, log an error and exit
-if (!JWT_SECRET) {
-  console.error("FATAL ERROR: JWT_SECRET is not defined in environment variables");
-  console.error("Current working directory:", process.cwd());
-  console.error("Expected .env file path:", path.resolve(__dirname, ".env"));
-  console.error("Environment variables:", Object.keys(process.env));
-  process.exit(1);
-}
 
 // =====================
 // Auth Middleware
