@@ -58,6 +58,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://vauju-dating-app.vercel.app",
   "https://www.yugalmeet.com",
+  "https://admin.yugalmeet.com",
 ];
 
 app.use(
