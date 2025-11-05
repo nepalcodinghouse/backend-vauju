@@ -115,7 +115,7 @@ export const createPost = async (req, res) => {
     // Check if user has permission to post
     // Users with blue tick or canPost flag can post
     // Additionally, specific professional users can post
-    const professionalUsers = ['abhayabikramshahioffciial@gmail.com', 'anupama57@gmail.com'];
+    const professionalUsers = ['abhayabikramshahioffciial@gmail.com', 'anupama57@gmail.com', "aurameetofficial@gmail.com"];
     const hasPermission = user.isBlueTick || 
                          user.canPost || 
                          professionalUsers.includes(user.email);
