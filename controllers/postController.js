@@ -1,5 +1,6 @@
 import Post from "../models/Post.js";
 import User from "../models/User.js";
+import Share from "../models/Share.js";
 import mongoose from "mongoose";
 
 // Get all posts (feed)
@@ -348,6 +349,204 @@ export const addComment = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// ... existing code ...
+
+// Record post share
+export const sharePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sharedAt } = req.body;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    // Verify post exists
+    const post = await Post.findOne({ _id: id, isDeleted: false });
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    // Create share record
+    const share = new Share({
+      postId: id,
+      userId: userId,
+      sharedAt: new Date(sharedAt || Date.now())
+    });
+
+    await share.save();
+
+    // Update post share count
+    post.shareCount = (post.shareCount || 0) + 1;
+    await post.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Share recorded successfully",
+      share: share
+    });
+  } catch (error) {
+    console.error("Share post error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get post shares analytics
+export const getPostShares = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    const post = await Post.findOne({ _id: id, isDeleted: false });
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const shares = await Share.find({ postId: id })
+      .populate('userId', 'name username profileImage')
+      .sort({ sharedAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      totalShares: shares.length,
+      shares: shares
+    });
+  } catch (error) {
+    console.error("Get post shares error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get post analytics (combined stats)
+export const getPostAnalytics = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    const post = await Post.findOne({ _id: id, isDeleted: false })
+      .populate('user', 'name username profileImage');
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const shares = await Share.countDocuments({ postId: id });
+    const comments = post.comments.length;
+    const likes = post.likes.length;
+
+    res.status(200).json({
+      success: true,
+      analytics: {
+        postId: post._id,
+        title: post.title || "Untitled",
+        content: post.content.substring(0, 100) + (post.content.length > 100 ? "..." : ""),
+        author: post.user.name,
+        createdAt: post.createdAt,
+        stats: {
+          likes: likes,
+          comments: comments,
+          shares: shares,
+          totalEngagement: likes + comments + shares
+        },
+        engagement: {
+          likeRate: likes > 0 ? Math.round((likes / (likes + comments + shares)) * 100) : 0,
+          commentRate: comments > 0 ? Math.round((comments / (likes + comments + shares)) * 100) : 0,
+          shareRate: shares > 0 ? Math.round((shares / (likes + comments + shares)) * 100) : 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Get post analytics error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get user analytics
+export const getUserPostAnalytics = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const posts = await Post.find({ user: userId, isDeleted: false })
+      .populate('user', 'name username profileImage');
+
+    if (posts.length === 0) {
+      return res.status(200).json({
+        success: true,
+        userId: userId,
+        totalPosts: 0,
+        analytics: {
+          totalLikes: 0,
+          totalComments: 0,
+          totalShares: 0,
+          averageEngagement: 0
+        },
+        posts: []
+      });
+    }
+
+    let totalLikes = 0;
+    let totalComments = 0;
+    let totalShares = 0;
+
+    const postsAnalytics = await Promise.all(
+      posts.map(async (post) => {
+        const shares = await Share.countDocuments({ postId: post._id });
+        const likes = post.likes.length;
+        const comments = post.comments.length;
+
+        totalLikes += likes;
+        totalComments += comments;
+        totalShares += shares;
+
+        return {
+          postId: post._id,
+          content: post.content.substring(0, 80) + (post.content.length > 80 ? "..." : ""),
+          createdAt: post.createdAt,
+          stats: {
+            likes: likes,
+            comments: comments,
+            shares: shares,
+            totalEngagement: likes + comments + shares
+          }
+        };
+      })
+    );
+
+    const averageEngagement = Math.round(
+      (totalLikes + totalComments + totalShares) / posts.length
+    );
+
+    res.status(200).json({
+      success: true,
+      userId: userId,
+      totalPosts: posts.length,
+      analytics: {
+        totalLikes: totalLikes,
+        totalComments: totalComments,
+        totalShares: totalShares,
+        averageEngagement: averageEngagement
+      },
+      posts: postsAnalytics
+    });
+  } catch (error) {
+    console.error("Get user analytics error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ... existing code ...
 
 // Delete comment
 export const deleteComment = async (req, res) => {
