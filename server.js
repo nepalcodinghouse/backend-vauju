@@ -38,6 +38,7 @@ if (!JWT_SECRET) {
 
 // Import Models
 import User from "./models/User.js";
+import Post from "./models/Post.js";
 
 // Routes
 import authRoutes from "./routes/authRoutes.js";
@@ -173,6 +174,118 @@ app.get("/@:username", async (req, res) => {
     res.json(user);
   } catch (error) {
     console.error("Get user by username error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.get("/posts/:postId", async (req, res) => {
+  try {
+    const { postId } = req.params;
+    if (!postId) {
+      return res.status(400).json({ message: "Post ID required" });
+    }
+
+    // Fetch the post by ID
+    const post = await Post.findById(postId).populate('user', 'name username profilePic gender').populate('comments.user', 'name username profilePic gender');
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    // Render a simple HTML page with post information
+    // In a production environment, you might want to serve a more sophisticated template
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>YugalMeet Post</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .post-container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .post-header { display: flex; align-items: center; padding: 16px; border-bottom: 1px solid #eee; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: #ddd; margin-right: 12px; }
+        .user-info h3 { margin: 0; font-size: 16px; font-weight: 600; }
+        .user-info p { margin: 2px 0 0; font-size: 12px; color: #666; }
+        .post-content { padding: 16px; }
+        .post-title { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
+        .post-text { font-size: 16px; line-height: 1.5; color: #333; margin: 0 0 16px; }
+        .post-image { width: 100%; max-height: 400px; object-fit: cover; }
+        .post-actions { display: flex; padding: 12px 16px; border-top: 1px solid #eee; }
+        .action-button { display: flex; align-items: center; margin-right: 20px; color: #666; font-size: 14px; }
+        .action-button svg { margin-right: 6px; }
+        .comments-section { padding: 16px; border-top: 1px solid #eee; }
+        .comment { display: flex; margin-bottom: 16px; }
+        .comment-avatar { width: 32px; height: 32px; border-radius: 50%; background: #ddd; margin-right: 10px; }
+        .comment-content { flex: 1; }
+        .comment-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .comment-author { font-weight: 600; font-size: 14px; }
+        .comment-time { font-size: 12px; color: #999; }
+        .comment-text { font-size: 14px; color: #333; }
+        .view-button { display: block; width: 80%; margin: 20px auto; padding: 12px; background: #ff0000; color: white; text-align: center; text-decoration: none; border-radius: 8px; font-weight: 600; }
+      </style>
+    </head>
+    <body>
+      <div class="post-container">
+        <div class="post-header">
+          <div class="avatar"></div>
+          <div class="user-info">
+            <h3>${post.user?.name || 'YugalMeet User'}</h3>
+            <p>${new Date(post.createdAt).toLocaleString()}</p>
+          </div>
+        </div>
+        
+        <div class="post-content">
+          ${post.title ? `<h2 class="post-title">${post.title}</h2>` : ''}
+          <p class="post-text">${post.content || ''}</p>
+          ${post.image ? `<img src="${post.image}" alt="Post image" class="post-image">` : ''}
+        </div>
+        
+        <div class="post-actions">
+          <div class="action-button">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="m8 2.748-.717-.737C5.6.281 2.514.878 1.4 3.053c-.523 1.023-.641 2.5.314 4.385.92 1.815 2.834 3.989 6.286 6.357 3.452-2.368 5.365-4.542 6.286-6.357.955-1.886.838-3.362.314-4.385C13.486.878 10.4.28 8.717 2.01L8 2.748zM8 15C-7.333 4.868 3.279-3.04 7.824 1.143c.06.055.119.112.176.171a3.12 3.12 0 0 1 .176-.17C12.72-3.042 23.333 4.867 8 15z"/>
+            </svg>
+            ${post.likes?.length || 0} Likes
+          </div>
+          <div class="action-button">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M2.678 11.894a1 1 0 0 1 .287.801 10.97 10.97 0 0 1-.398 2c1.395-.323 2.247-.697 2.634-.893a1 1 0 0 1 .71-.074A8.06 8.06 0 0 0 8 14c3.996 0 7-2.807 7-6 0-3.192-3.004-6-7-6S1 4.808 1 8c0 1.468.617 2.83 1.678 3.894zm-.493 3.905a21.682 21.682 0 0 1-.713.129c-.2.032-.352-.176-.273-.362a9.68 9.68 0 0 0 .244-.637l.003-.01c.248-.72.45-1.548.524-2.319C.743 11.37 0 9.76 0 8c0-3.866 3.582-7 8-7s8 3.134 8 7-3.582 7-8 7a9.06 9.06 0 0 1-2.347-.306c-.52.263-1.639.742-3.468 1.105z"/>
+            </svg>
+            ${post.comments?.length || 0} Comments
+          </div>
+        </div>
+        
+        <div class="comments-section">
+          <h3>Comments</h3>
+          ${post.comments && post.comments.length > 0 ? 
+            post.comments.map(comment => `
+              <div class="comment">
+                <div class="comment-avatar"></div>
+                <div class="comment-content">
+                  <div class="comment-header">
+                    <span class="comment-author">${comment.user?.name || 'YugalMeet User'}</span>
+                    <span class="comment-time">${new Date(comment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  </div>
+                  <p class="comment-text">${comment.text}</p>
+                </div>
+              </div>
+            `).join('') : 
+            '<p>No comments yet.</p>'
+          }
+        </div>
+        
+        <a href="${process.env.FRONTEND_URL || 'https://www.yugalmeet.com'}/posts/${postId}" class="view-button">
+          View Full Post on YugalMeet
+        </a>
+      </div>
+    </body>
+    </html>
+    `;
+
+    res.send(html);
+  } catch (error) {
+    console.error("Get post by ID error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

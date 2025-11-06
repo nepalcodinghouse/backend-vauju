@@ -1,71 +1,81 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
-const postSchema = new mongoose.Schema(
-  {
+const postSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    trim: true,
+    maxlength: 200
+  },
+  content: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  image: {
+    type: String, // URL to the image
+    trim: true
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  likes: [{
     user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
+      ref: 'User'
     },
-    content: {
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  comments: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    text: {
       type: String,
-      required: [true, "Post content is required"],
+      required: true,
       trim: true,
-      maxlength: [500, "Post content cannot exceed 500 characters"],
+      maxlength: 500
     },
-    likes: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-    ],
-    comments: [
-      {
-        user: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        content: {
-          type: String,
-          required: true,
-          trim: true,
-        },
-        createdAt: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
-    isDeleted: {
-      type: Boolean,
-      default: false,
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  shares: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     },
+    sharedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
   },
-  { 
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
-);
-
-// Virtual for like count
-postSchema.virtual('likesCount').get(function() {
-  return this.likes ? this.likes.length : 0;
 });
 
-// Virtual for comments count
-postSchema.virtual('commentsCount').get(function() {
-  return this.comments ? this.comments.length : 0;
-});
-
-// Pre-save middleware to populate user info
-postSchema.pre(/^find/, function(next) {
-  this.populate({
-    path: 'user',
-    select: 'name username profileImage isBlueTick'
-  });
+// Update the updatedAt field before saving
+postSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
   next();
 });
 
-export default mongoose.model("Post", postSchema);
+// Index for better query performance
+postSchema.index({ user: 1, createdAt: -1 });
+postSchema.index({ createdAt: -1 });
+
+const Post = mongoose.model('Post', postSchema);
+
+export default Post;
