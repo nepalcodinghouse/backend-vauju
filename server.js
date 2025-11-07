@@ -39,6 +39,7 @@ if (!JWT_SECRET) {
 // Import Models
 import User from "./models/User.js";
 import Post from "./models/Post.js";
+import Comment from "./models/Comment.js";
 
 // Routes
 import authRoutes from "./routes/authRoutes.js";
@@ -49,6 +50,7 @@ import messageRoutes from "./routes/messageRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import systemRoutes from "./routes/systemRoutes.js";
 import postRoutes from "./routes/postRoutes.js";
+import commentRoutes from "./routes/commentRoutes.js";
 
 connectDB();
 
@@ -186,7 +188,12 @@ app.get("/posts/:postId", async (req, res) => {
     }
 
     // Fetch the post by ID
-    const post = await Post.findById(postId).populate('user', 'name username profilePic gender').populate('comments.user', 'name username profilePic gender');
+    const post = await Post.findById(postId)
+      .populate('user', 'name username profilePic gender')
+      .populate({
+        path: 'comments',
+        populate: { path: 'user', select: 'name username profilePic gender' }
+      });
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
@@ -267,7 +274,7 @@ app.get("/posts/:postId", async (req, res) => {
                     <span class="comment-author">${comment.user?.name || 'YugalMeet User'}</span>
                     <span class="comment-time">${new Date(comment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                   </div>
-                  <p class="comment-text">${comment.text}</p>
+                  <p class="comment-text">${comment.content || comment.text}</p>
                 </div>
               </div>
             `).join('') : 
@@ -299,6 +306,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/system", systemRoutes);
 app.use("/api/posts", postRoutes);
+app.use("/api/comments", commentRoutes);
 
 // =====================
 // HTTP + Socket.IO Server
