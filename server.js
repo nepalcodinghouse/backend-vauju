@@ -40,17 +40,7 @@ if (!JWT_SECRET) {
 import User from "./models/User.js";
 import Post from "./models/Post.js";
 import Comment from "./models/Comment.js";
-
-// Routes
-import authRoutes from "./routes/authRoutes.js";
-import adminRoutes from "./routes/adminRoutes.js";
-import matchRoutes from "./routes/matchRoutes.js";
-import profileRoutes from "./routes/profileRoutes.js";
-import messageRoutes from "./routes/messageRoutes.js";
-import userRoutes from "./routes/userRoutes.js";
-import systemRoutes from "./routes/systemRoutes.js";
-import postRoutes from "./routes/postRoutes.js";
-import commentRoutes from "./routes/commentRoutes.js";
+import Notification from "./models/Notification.js";
 
 connectDB();
 
@@ -237,76 +227,357 @@ app.get("/posts/:postId", async (req, res) => {
         <div class="post-header">
           <div class="avatar"></div>
           <div class="user-info">
-            <h3>${post.user?.name || 'YugalMeet User'}</h3>
-            <p>${new Date(post.createdAt).toLocaleString()}</p>
+            <h3>${post.user.name}</h3>
+            <p>@${post.user.username}</p>
           </div>
         </div>
-        
         <div class="post-content">
-          ${post.title ? `<h2 class="post-title">${post.title}</h2>` : ''}
-          <p class="post-text">${post.content || ''}</p>
+          <h2 class="post-title">${post.title || 'Untitled Post'}</h2>
+          <p class="post-text">${post.content}</p>
           ${post.image ? `<img src="${post.image}" alt="Post image" class="post-image">` : ''}
         </div>
-        
         <div class="post-actions">
           <div class="action-button">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="m8 2.748-.717-.737C5.6.281 2.514.878 1.4 3.053c-.523 1.023-.641 2.5.314 4.385.92 1.815 2.834 3.989 6.286 6.357 3.452-2.368 5.365-4.542 6.286-6.357.955-1.886.838-3.362.314-4.385C13.486.878 10.4.28 8.717 2.01L8 2.748zM8 15C-7.333 4.868 3.279-3.04 7.824 1.143c.06.055.119.112.176.171a3.12 3.12 0 0 1 .176-.17C12.72-3.042 23.333 4.867 8 15z"/>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
             </svg>
             ${post.likes?.length || 0} Likes
           </div>
           <div class="action-button">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M2.678 11.894a1 1 0 0 1 .287.801 10.97 10.97 0 0 1-.398 2c1.395-.323 2.247-.697 2.634-.893a1 1 0 0 1 .71-.074A8.06 8.06 0 0 0 8 14c3.996 0 7-2.807 7-6 0-3.192-3.004-6-7-6S1 4.808 1 8c0 1.468.617 2.83 1.678 3.894zm-.493 3.905a21.682 21.682 0 0 1-.713.129c-.2.032-.352-.176-.273-.362a9.68 9.68 0 0 0 .244-.637l.003-.01c.248-.72.45-1.548.524-2.319C.743 11.37 0 9.76 0 8c0-3.866 3.582-7 8-7s8 3.134 8 7-3.582 7-8 7a9.06 9.06 0 0 1-2.347-.306c-.52.263-1.639.742-3.468 1.105z"/>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
             ${post.comments?.length || 0} Comments
           </div>
         </div>
-        
         <div class="comments-section">
           <h3>Comments</h3>
-          ${post.comments && post.comments.length > 0 ? 
-            post.comments.map(comment => `
-              <div class="comment">
-                <div class="comment-avatar"></div>
-                <div class="comment-content">
-                  <div class="comment-header">
-                    <span class="comment-author">${comment.user?.name || 'YugalMeet User'}</span>
-                    <span class="comment-time">${new Date(comment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                  </div>
-                  <p class="comment-text">${comment.content || comment.text}</p>
+          ${post.comments.map(comment => `
+            <div class="comment">
+              <div class="comment-avatar"></div>
+              <div class="comment-content">
+                <div class="comment-header">
+                  <span class="comment-author">${comment.user.name}</span>
+                  <span class="comment-time">${new Date(comment.createdAt).toLocaleDateString()}</span>
                 </div>
+                <p class="comment-text">${comment.content}</p>
               </div>
-            `).join('') : 
-            '<p>No comments yet.</p>'
-          }
+            </div>
+          `).join('')}
         </div>
-        
-        <a href="${process.env.FRONTEND_URL || 'https://www.yugalmeet.com'}/posts/${postId}" class="view-button">
-          View Full Post on YugalMeet
-        </a>
+        <a href="https://www.yugalmeet.com" class="view-button">View on YugalMeet</a>
       </div>
     </body>
     </html>
     `;
-
     res.send(html);
   } catch (error) {
-    console.error("Get post by ID error:", error);
+    console.error("Get post error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// API Routes
-app.use("/api/auth", authRoutes);
-app.use("/admin", adminRoutes);
-app.use("/api/matches", matchRoutes);
-app.use("/api/profile", profileRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/system", systemRoutes);
-app.use("/api/posts", postRoutes);
-app.use("/api/comments", commentRoutes);
+// =====================
+// Friends API
+// =====================
+// Send friend request
+app.post("/api/friends/request", requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const currentUserId = req.user._id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    // Check if user exists and is not suspended
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (user.suspended) {
+      return res.status(403).json({ message: "This user is suspended" });
+    }
+
+    // Check if already friends
+    const currentUser = await User.findById(currentUserId);
+    if (currentUser.friends.includes(userId)) {
+      return res.status(400).json({ message: "You are already friends with this user" });
+    }
+
+    // Check if friend request already sent
+    if (user.friendRequests.includes(currentUserId)) {
+      return res.status(400).json({ message: "Friend request already sent" });
+    }
+
+    // Add friend request
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { friendRequests: currentUserId }
+    });
+
+    res.json({ message: "Friend request sent successfully" });
+  } catch (error) {
+    console.error("Send friend request error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Accept friend request
+app.post("/api/friends/accept", requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const currentUserId = req.user._id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    // Remove friend request
+    await User.findByIdAndUpdate(currentUserId, {
+      $pull: { friendRequests: userId }
+    });
+
+    // Add each other as friends
+    await User.findByIdAndUpdate(currentUserId, {
+      $addToSet: { friends: userId }
+    });
+
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { friends: currentUserId }
+    });
+
+    // Emit socket event for real-time notification
+    const io = req.app.locals.io;
+    const userSockets = req.app.locals.userSockets;
+    const recipientSockets = userSockets.get(userId);
+    if (recipientSockets) {
+      recipientSockets.forEach((sid) => {
+        io.to(sid).emit("friendAccept", {
+          from: currentUserId,
+          message: `${currentUser.name} accepted your friend request`,
+          timestamp: new Date(),
+        });
+      });
+    }
+
+    res.json({ message: "Friend request accepted successfully" });
+  } catch (error) {
+    console.error("Accept friend request error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Reject friend request
+app.post("/api/friends/reject", requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const currentUserId = req.user._id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    // Remove friend request
+    await User.findByIdAndUpdate(currentUserId, {
+      $pull: { friendRequests: userId }
+    });
+
+    res.json({ message: "Friend request rejected successfully" });
+  } catch (error) {
+    console.error("Reject friend request error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Remove friend
+app.post("/api/friends/remove", requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const currentUserId = req.user._id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    // Remove each other as friends
+    await User.findByIdAndUpdate(currentUserId, {
+      $pull: { friends: userId }
+    });
+
+    await User.findByIdAndUpdate(userId, {
+      $pull: { friends: currentUserId }
+    });
+
+    res.json({ message: "Friend removed successfully" });
+  } catch (error) {
+    console.error("Remove friend error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get friends list
+app.get("/api/friends", requireAuth, async (req, res) => {
+  try {
+    console.log("Fetching friends for user:", req.user._id);
+    
+    const currentUser = await User.findById(req.user._id)
+      .populate("friends", "name username profileImage bio location interests isOnline")
+      .populate("friendRequests", "name username profileImage bio location interests isOnline");
+
+    if (!currentUser) {
+      console.log("User not found:", req.user._id);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log("Found user:", currentUser._id, "Friends count:", currentUser.friends?.length, "Requests count:", currentUser.friendRequests?.length);
+
+    res.json({
+      friends: currentUser.friends || [],
+      friendRequests: currentUser.friendRequests || []
+    });
+  } catch (error) {
+    console.error("Get friends error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get daily random user suggestion
+app.get("/api/friends/daily-suggestion", requireAuth, async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    
+    // Get the current user's gender
+    const currentUser = await User.findById(currentUserId).select('gender');
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    // Get current user's friends
+    const currentUserWithFriends = await User.findById(currentUserId).select('friends');
+    const friendIds = currentUserWithFriends.friends || [];
+    
+    // Get a random user of opposite gender who is not already a friend
+    const randomUser = await User.aggregate([
+      { 
+        $match: { 
+          _id: { $ne: currentUserId },
+          suspended: { $ne: true },
+          visible: true,
+          gender: { $ne: currentUser.gender },
+          _id: { $nin: friendIds }
+        } 
+      },
+      { $sample: { size: 1 } },
+      {
+        $project: {
+          name: 1,
+          username: 1,
+          profileImage: 1,
+          bio: 1,
+          age: 1,
+          location: 1,
+          interests: 1,
+          isOnline: 1
+        }
+      }
+    ]);
+    
+    if (randomUser.length === 0) {
+      // If no users found, return a more generic message
+      return res.status(404).json({ message: "No users available for daily suggestion" });
+    }
+    
+    res.json(randomUser[0]);
+  } catch (error) {
+    console.error("Get daily suggestion error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// =====================
+// Notifications API
+// =====================
+// Get notifications
+app.get("/api/notifications", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get notifications for the user, sorted by timestamp (newest first)
+    const notifications = await Notification.find({ userId })
+      .sort({ timestamp: -1 })
+      .limit(50); // Limit to 50 most recent notifications
+    
+    res.json(notifications);
+  } catch (error) {
+    console.error("Get notifications error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Mark notification as read
+app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+    
+    // Update the notification as read
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, userId },
+      { read: true },
+      { new: true }
+    );
+    
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+    
+    res.json({ message: "Notification marked as read", notification });
+  } catch (error) {
+    console.error("Mark notification as read error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Mark all notifications as read
+app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Update all notifications for the user as read
+    await Notification.updateMany(
+      { userId, read: false },
+      { read: true }
+    );
+    
+    res.json({ message: "All notifications marked as read" });
+  } catch (error) {
+    console.error("Mark all notifications as read error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Delete notification
+app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+    
+    // Delete the notification
+    const notification = await Notification.findOneAndDelete({
+      _id: id,
+      userId
+    });
+    
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+    
+    res.json({ message: "Notification deleted" });
+  } catch (error) {
+    console.error("Delete notification error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // =====================
 // HTTP + Socket.IO Server
@@ -422,6 +693,117 @@ io.on("connection", (socket) => {
 // Attach to app
 app.locals.io = io;
 app.locals.userSockets = userSockets;
+
+// =====================
+// Daily Random User Feature
+// =====================
+
+// Function to send daily random user notifications
+async function sendDailyRandomUserNotifications() {
+  try {
+    console.log("Sending daily random user notifications...");
+    
+    // Get all active users
+    const users = await User.find({ 
+      suspended: { $ne: true },
+      visible: true 
+    }).select('_id');
+    
+    let notificationCount = 0;
+    
+    // For each user, find a random user of opposite gender
+    for (const user of users) {
+      try {
+        // Get the current user's gender
+        const currentUser = await User.findById(user._id).select('gender');
+        if (!currentUser) continue;
+        
+        // Get a random user of opposite gender who is not already a friend
+        const randomUser = await User.aggregate([
+          { 
+            $match: { 
+              _id: { $ne: user._id },
+              suspended: { $ne: true },
+              visible: true,
+              gender: { $ne: currentUser.gender },
+              _id: { $nin: await User.findById(user._id).then(u => u.friends || []) }
+            } 
+          },
+          { $sample: { size: 1 } },
+          {
+            $project: {
+              name: 1,
+              username: 1,
+              profileImage: 1,
+              bio: 1,
+              age: 1,
+              location: 1
+            }
+          }
+        ]);
+        
+        if (randomUser.length > 0) {
+          // Create notification
+          const notification = new Notification({
+            userId: user._id,
+            type: "daily_match",
+            title: "Daily Match Suggestion",
+            message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
+            relatedUser: randomUser[0]._id
+          });
+          
+          await notification.save();
+          notificationCount++;
+          
+          // Emit real-time notification via socket
+          const io = app.locals.io;
+          const userSockets = app.locals.userSockets;
+          const recipientSockets = userSockets.get(user._id.toString());
+          if (recipientSockets) {
+            recipientSockets.forEach((sid) => {
+              io.to(sid).emit("notification", {
+                type: "daily_match",
+                title: "Daily Match Suggestion",
+                message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
+                timestamp: new Date(),
+                unread: true
+              });
+            });
+          }
+        }
+      } catch (userError) {
+        console.error(`Error processing user ${user._id}:`, userError);
+      }
+    }
+    
+    console.log(`Sent daily notifications to ${notificationCount} users`);
+  } catch (error) {
+    console.error("Error sending daily notifications:", error);
+  }
+}
+
+// Schedule daily notifications (runs every day at 9:00 AM)
+function scheduleDailyNotifications() {
+  const now = new Date();
+  const nextRun = new Date();
+  nextRun.setHours(9, 0, 0, 0); // 9:00 AM
+  
+  // If it's already past 9:00 AM today, schedule for tomorrow
+  if (now > nextRun) {
+    nextRun.setDate(nextRun.getDate() + 1);
+  }
+  
+  const timeUntilNextRun = nextRun - now;
+  
+  setTimeout(() => {
+    sendDailyRandomUserNotifications();
+    // Set up recurring daily notifications
+    setInterval(sendDailyRandomUserNotifications, 24 * 60 * 60 * 1000); // Every 24 hours
+  }, timeUntilNextRun);
+}
+
+// Start scheduling
+scheduleDailyNotifications();
 
 // Start Server
 server.listen(PORT, () => {

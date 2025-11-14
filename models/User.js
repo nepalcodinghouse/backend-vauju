@@ -71,6 +71,15 @@ const userSchema = new mongoose.Schema(
       default: "", // can replace with default avatar URL
       trim: true,
     },
+    // Friends system
+    friends: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    }],
+    friendRequests: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    }],
 
     // User controls
     visible: { type: Boolean, default: false },
