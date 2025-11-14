@@ -42,7 +42,19 @@ import Post from "./models/Post.js";
 import Comment from "./models/Comment.js";
 import Notification from "./models/Notification.js";
 
-connectDB();
+// Connect to MongoDB with retry logic
+const connectWithRetry = async () => {
+  try {
+    await connectDB();
+    console.log("MongoDB connected successfully");
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+    console.log("Retrying connection in 5 seconds...");
+    setTimeout(connectWithRetry, 5000);
+  }
+};
+
+connectWithRetry();
 
 const app = express();
 
@@ -73,11 +85,23 @@ app.use(
 // app.options("*", cors());  // THIS CAUSES CRASH
 
 // Middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '10mb' })); // Reduced limit for faster processing
+app.use(express.urlencoded({ limit: '10mb', extended: true })); // Reduced limit
 
 // Serve static files for local uploads
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static("uploads", {
+  maxAge: '1d', // Cache for 1 day
+  etag: true
+}));
+
+// =====================
+// Performance Optimizations
+// =====================
+
+// Health check endpoint for faster response
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
+});
 
 // =====================
 // Auth Middleware
@@ -698,82 +722,90 @@ app.locals.userSockets = userSockets;
 // Daily Random User Feature
 // =====================
 
-// Function to send daily random user notifications
+// Function to send daily random user notifications (optimized version)
 async function sendDailyRandomUserNotifications() {
   try {
     console.log("Sending daily random user notifications...");
     
-    // Get all active users
-    const users = await User.find({ 
-      suspended: { $ne: true },
-      visible: true 
-    }).select('_id');
-    
+    // Get all active users in batches to avoid memory issues
+    const batchSize = 100;
+    let skip = 0;
     let notificationCount = 0;
     
-    // For each user, find a random user of opposite gender
-    for (const user of users) {
-      try {
-        // Get the current user's gender
-        const currentUser = await User.findById(user._id).select('gender');
-        if (!currentUser) continue;
-        
-        // Get a random user of opposite gender who is not already a friend
-        const randomUser = await User.aggregate([
-          { 
-            $match: { 
-              _id: { $ne: user._id },
-              suspended: { $ne: true },
-              visible: true,
-              gender: { $ne: currentUser.gender },
-              _id: { $nin: await User.findById(user._id).then(u => u.friends || []) }
-            } 
-          },
-          { $sample: { size: 1 } },
-          {
-            $project: {
-              name: 1,
-              username: 1,
-              profileImage: 1,
-              bio: 1,
-              age: 1,
-              location: 1
+    while (true) {
+      const users = await User.find({ 
+        suspended: { $ne: true },
+        visible: true 
+      })
+      .select('_id friends gender')
+      .skip(skip)
+      .limit(batchSize);
+      
+      if (users.length === 0) break;
+      
+      // Process each user in the batch
+      for (const user of users) {
+        try {
+          // Get a random user of opposite gender who is not already a friend
+          const randomUser = await User.aggregate([
+            { 
+              $match: { 
+                _id: { $ne: user._id },
+                suspended: { $ne: true },
+                visible: true,
+                gender: { $ne: user.gender },
+                _id: { $nin: user.friends || [] }
+              } 
+            },
+            { $sample: { size: 1 } },
+            {
+              $project: {
+                name: 1,
+                username: 1,
+                profileImage: 1,
+                bio: 1,
+                age: 1,
+                location: 1
+              }
+            }
+          ]);
+          
+          if (randomUser.length > 0) {
+            // Create notification
+            const notification = new Notification({
+              userId: user._id,
+              type: "daily_match",
+              title: "Daily Match Suggestion",
+              message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
+              relatedUser: randomUser[0]._id
+            });
+            
+            await notification.save();
+            notificationCount++;
+            
+            // Emit real-time notification via socket (only if user is online)
+            const io = app.locals.io;
+            const userSockets = app.locals.userSockets;
+            const recipientSockets = userSockets.get(user._id.toString());
+            if (recipientSockets) {
+              recipientSockets.forEach((sid) => {
+                io.to(sid).emit("notification", {
+                  type: "daily_match",
+                  title: "Daily Match Suggestion",
+                  message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
+                  timestamp: new Date(),
+                  unread: true
+                });
+              });
             }
           }
-        ]);
-        
-        if (randomUser.length > 0) {
-          // Create notification
-          const notification = new Notification({
-            userId: user._id,
-            type: "daily_match",
-            title: "Daily Match Suggestion",
-            message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
-            relatedUser: randomUser[0]._id
-          });
-          
-          await notification.save();
-          notificationCount++;
-          
-          // Emit real-time notification via socket
-          const io = app.locals.io;
-          const userSockets = app.locals.userSockets;
-          const recipientSockets = userSockets.get(user._id.toString());
-          if (recipientSockets) {
-            recipientSockets.forEach((sid) => {
-              io.to(sid).emit("notification", {
-                type: "daily_match",
-                title: "Daily Match Suggestion",
-                message: `Check out ${randomUser[0].name} as your daily match suggestion!`,
-                timestamp: new Date(),
-                unread: true
-              });
-            });
-          }
+        } catch (userError) {
+          console.error(`Error processing user ${user._id}:`, userError);
+          // Continue with next user instead of stopping entire process
         }
-      } catch (userError) {
-        console.error(`Error processing user ${user._id}:`, userError);
       }
+      
+      skip += batchSize;
     }
     
     console.log(`Sent daily notifications to ${notificationCount} users`);
@@ -802,11 +834,14 @@ function scheduleDailyNotifications() {
   }, timeUntilNextRun);
 }
 
-// Start scheduling
-scheduleDailyNotifications();
+// Start scheduling (only in production or when explicitly enabled)
+if (process.env.NODE_ENV === 'production' || process.env.ENABLE_DAILY_NOTIFICATIONS === 'true') {
+  scheduleDailyNotifications();
+}
 
 // Start Server
 server.listen(PORT, () => {
   console.log(`AuraMeet backend running on port ${PORT}`);
   console.log(`JWT_SECRET loaded: ${!!JWT_SECRET}`);
+  console.log(`MongoDB URI: ${process.env.MONGODB_URI ? 'Defined' : 'Undefined'}`);
 });
