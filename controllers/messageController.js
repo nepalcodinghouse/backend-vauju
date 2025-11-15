@@ -1,6 +1,7 @@
 import Message from "../models/Message.js";
 import mongoose from "mongoose";
 import { isDbConnected } from "../config/db.js";
+import { generateEncryptionKey, encryptMessage, decryptMessage, hashValue, compareHash } from "../utils/encryption.js";
 
 // Minimal in-memory store for messages/presence when DB is absent
 const messageStore = { messages: [], presence: {} };
@@ -35,16 +36,34 @@ export const sendMessage = async (req, res) => {
     const { to, text } = req.body;
     if (!to || !text) return res.status(400).json({ message: "Missing to/text" });
 
+    // Generate encryption key and encrypt message
+    const encryptionKey = generateEncryptionKey();
+    const encryptedContent = encryptMessage(text, encryptionKey);
+    const contentKeyHash = await hashValue(encryptionKey);
+
     let msg;
 
     if (isDbConnected() && mongoose.connection.readyState === 1) {
-      msg = await Message.create({ from: req.user._id, to, text });
+      msg = await Message.create({ 
+        from: req.user._id, 
+        to, 
+        encryptedContent,
+        contentKeyHash
+      });
       if (String(req.user._id) === String(to)) {
         msg = await Message.findByIdAndUpdate(msg._id, { seen: true }, { new: true });
       }
     } else {
       // Fallback: in-memory store
-      msg = { _id: `m-${Date.now()}`, from: req.user._id, to, text, seen: String(req.user._id) === String(to), createdAt: new Date() };
+      msg = { 
+        _id: `m-${Date.now()}`, 
+        from: req.user._id, 
+        to, 
+        encryptedContent,
+        contentKeyHash,
+        seen: String(req.user._id) === String(to), 
+        createdAt: new Date() 
+      };
       messageStore.messages.push(msg);
     }
 
@@ -61,7 +80,14 @@ export const sendMessage = async (req, res) => {
       }
     } catch (e) { console.error(e); }
 
-    return res.json(msg);
+    // Return message with encryption key for sender's records
+    const responseMessage = {
+      ...msg.toObject ? msg.toObject() : msg,
+      encryptionKey: encryptionKey, // Only sent to sender for their records
+      isEncrypted: true
+    };
+
+    return res.json(responseMessage);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -88,7 +114,14 @@ export const getConversation = async (req, res) => {
       msgs.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
     }
 
-    res.json(msgs);
+    // Add a flag to indicate messages are encrypted and need client-side decryption
+    const responseMessages = msgs.map(msg => ({
+      ...msg.toObject ? msg.toObject() : msg,
+      isEncrypted: true,
+      encryptedContent: msg.encryptedContent
+    }));
+
+    res.json(responseMessages);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

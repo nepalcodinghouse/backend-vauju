@@ -44,6 +44,27 @@ const postSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+  // View analytics fields
+  viewCount: {
+    type: Number,
+    default: 0
+  },
+  uniqueViewers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  viewHistory: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    viewedAt: {
+      type: Date,
+      default: Date.now
+    },
+    ip: String,
+    userAgent: String
+  }],
   createdAt: {
     type: Date,
     default: Date.now

@@ -2,6 +2,7 @@ import Post from "../models/Post.js";
 import User from "../models/User.js";
 import Share from "../models/Share.js";
 import mongoose from "mongoose";
+import { sanitize } from "sanitizer";
 
 // Get all posts (feed)
 export const getPosts = async (req, res) => {
@@ -105,7 +106,9 @@ export const getPost = async (req, res) => {
 // Create new post
 export const createPost = async (req, res) => {
   try {
+    // Sanitize input data
     const { content } = req.body;
+    const sanitizedContent = sanitize(content);
 
     // Check if user exists
     const user = await User.findById(req.user._id);
@@ -113,29 +116,17 @@ export const createPost = async (req, res) => {
       return res.status(403).json({ message: "User not found" });
     }
 
-    // Check if user has permission to post
-    // Users with blue tick or canPost flag can post
-    // Additionally, specific professional users can post
-    const professionalUsers = ['abhayabikramshahioffciial@gmail.com', 'anupama57@gmail.com', "aurameetofficial@gmail.com"];
-    const hasPermission = user.isBlueTick || 
-                         user.canPost || 
-                         professionalUsers.includes(user.email);
-
-    if (!hasPermission) {
-      return res.status(403).json({ message: "You don't have permission to create posts" });
-    }
-
-    if (!content || content.trim().length === 0) {
+    if (!sanitizedContent || sanitizedContent.trim().length === 0) {
       return res.status(400).json({ message: "Post content is required" });
     }
 
-    if (content.length > 500) {
+    if (sanitizedContent.length > 500) {
       return res.status(400).json({ message: "Post content cannot exceed 500 characters" });
     }
 
     const post = new Post({
       user: req.user._id,
-      content: content.trim()
+      content: sanitizedContent.trim()
     });
 
     await post.save();
@@ -154,17 +145,19 @@ export const createPost = async (req, res) => {
 export const updatePost = async (req, res) => {
   try {
     const { id } = req.params;
+    // Sanitize input data
     const { content } = req.body;
+    const sanitizedContent = sanitize(content);
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid post ID" });
     }
 
-    if (!content || content.trim().length === 0) {
+    if (!sanitizedContent || sanitizedContent.trim().length === 0) {
       return res.status(400).json({ message: "Post content is required" });
     }
 
-    if (content.length > 500) {
+    if (sanitizedContent.length > 500) {
       return res.status(400).json({ message: "Post content cannot exceed 500 characters" });
     }
 
@@ -179,7 +172,7 @@ export const updatePost = async (req, res) => {
       return res.status(403).json({ message: "You can only edit your own posts" });
     }
 
-    post.content = content.trim();
+    post.content = sanitizedContent.trim();
     await post.save();
 
     await post.populate('user', 'name username profileImage isBlueTick');
@@ -222,7 +215,7 @@ export const deletePost = async (req, res) => {
   }
 };
 
-// Like a post
+// Like post
 export const likePost = async (req, res) => {
   try {
     const { id } = req.params;
@@ -237,55 +230,26 @@ export const likePost = async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Check if already liked
-    const alreadyLiked = post.likes.some(like => String(like) === String(req.user._id));
+    // Check if user has already liked the post
+    const existingLike = post.likes.find(like => String(like.user) === String(req.user._id));
 
-    if (alreadyLiked) {
-      return res.status(400).json({ message: "Post already liked" });
+    if (existingLike) {
+      // Unlike the post
+      post.likes = post.likes.filter(like => String(like.user) !== String(req.user._id));
+    } else {
+      // Like the post
+      post.likes.push({ user: req.user._id });
     }
 
-    post.likes.push(req.user._id);
     await post.save();
 
+    // Populate user data before sending response
     await post.populate('user', 'name username profileImage isBlueTick');
+    await post.populate('likes.user', 'name username profileImage');
 
-    res.json({ message: "Post liked successfully", likesCount: post.likesCount });
+    res.json(post);
   } catch (error) {
     console.error("Like post error:", error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Unlike a post
-export const unlikePost = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid post ID" });
-    }
-
-    const post = await Post.findOne({ _id: id, isDeleted: false });
-
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    // Check if not liked
-    const likeIndex = post.likes.findIndex(like => String(like) === String(req.user._id));
-
-    if (likeIndex === -1) {
-      return res.status(400).json({ message: "Post not liked yet" });
-    }
-
-    post.likes.splice(likeIndex, 1);
-    await post.save();
-
-    await post.populate('user', 'name username profileImage isBlueTick');
-
-    res.json({ message: "Post unliked successfully", likesCount: post.likesCount });
-  } catch (error) {
-    console.error("Unlike post error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -294,18 +258,20 @@ export const unlikePost = async (req, res) => {
 export const addComment = async (req, res) => {
   try {
     const { id } = req.params;
+    // Sanitize input data
     const { content } = req.body;
+    const sanitizedContent = sanitize(content);
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid post ID" });
     }
 
-    if (!content || content.trim().length === 0) {
+    if (!sanitizedContent || sanitizedContent.trim().length === 0) {
       return res.status(400).json({ message: "Comment content is required" });
     }
 
-    if (content.trim().length > 250) {
-      return res.status(400).json({ message: "Comment cannot exceed 250 characters" });
+    if (sanitizedContent.length > 300) {
+      return res.status(400).json({ message: "Comment content cannot exceed 300 characters" });
     }
 
     const post = await Post.findOne({ _id: id, isDeleted: false });
@@ -314,115 +280,111 @@ export const addComment = async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    const alreadyCommented = post.comments.some(
-      (comment) => String(comment.user) === String(req.user._id)
-    );
-
-    if (alreadyCommented) {
-      return res.status(400).json({ message: "You have already commented on this post" });
-    }
-
+    // Create comment (in a real app, you would create a Comment document)
     const comment = {
       user: req.user._id,
-      content: content.trim(),
+      content: sanitizedContent.trim(),
       createdAt: new Date()
     };
 
     post.comments.push(comment);
     await post.save();
 
+    // Populate user data before sending response
+    await post.populate('user', 'name username profileImage isBlueTick');
     await post.populate('comments.user', 'name username profileImage');
 
-    const newComment = post.comments[post.comments.length - 1];
-
-    res.status(201).json({
-      comment: {
-        _id: newComment._id,
-        content: newComment.content,
-        createdAt: newComment.createdAt,
-        user: newComment.user
-      },
-      commentsCount: post.commentsCount
-    });
+    res.status(201).json(post);
   } catch (error) {
     console.error("Add comment error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// ... existing code ...
-
-// Record post share
-export const sharePost = async (req, res) => {
+// Delete comment
+export const deleteComment = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { sharedAt } = req.body;
-    const userId = req.user._id;
+    const { id, commentId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid post ID" });
     }
 
-    // Verify post exists
     const post = await Post.findOne({ _id: id, isDeleted: false });
+
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    // Create share record
-    const share = new Share({
-      postId: id,
-      userId: userId,
-      sharedAt: new Date(sharedAt || Date.now())
-    });
+    // Find the comment
+    const commentIndex = post.comments.findIndex(comment => 
+      String(comment._id) === commentId && 
+      (String(comment.user) === String(req.user._id) || String(post.user) === String(req.user._id))
+    );
 
-    await share.save();
+    if (commentIndex === -1) {
+      return res.status(404).json({ message: "Comment not found or you don't have permission to delete it" });
+    }
 
-    // Update post share count
-    post.shareCount = (post.shareCount || 0) + 1;
+    // Remove the comment
+    post.comments.splice(commentIndex, 1);
     await post.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Share recorded successfully",
-      share: share
+    // Populate user data before sending response
+    await post.populate('user', 'name username profileImage isBlueTick');
+    await post.populate('comments.user', 'name username profileImage');
+
+    res.json(post);
+  } catch (error) {
+    console.error("Delete comment error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Share post
+export const sharePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    const post = await Post.findOne({ _id: id, isDeleted: false });
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    // Check if user has already shared the post
+    const existingShare = post.shares.find(share => String(share.user) === String(req.user._id));
+
+    if (existingShare) {
+      return res.status(400).json({ message: "You have already shared this post" });
+    }
+
+    // Add share
+    post.shares.push({ user: req.user._id });
+    await post.save();
+
+    // Also create a share document
+    const share = new Share({
+      user: req.user._id,
+      post: id
     });
+    await share.save();
+
+    // Populate user data before sending response
+    await post.populate('user', 'name username profileImage isBlueTick');
+
+    res.json({ message: "Post shared successfully", post });
   } catch (error) {
     console.error("Share post error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Get post shares analytics
-export const getPostShares = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid post ID" });
-    }
-
-    const post = await Post.findOne({ _id: id, isDeleted: false });
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    const shares = await Share.find({ postId: id })
-      .populate('userId', 'name username profileImage')
-      .sort({ sharedAt: -1 });
-
-    res.status(200).json({
-      success: true,
-      totalShares: shares.length,
-      shares: shares
-    });
-  } catch (error) {
-    console.error("Get post shares error:", error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Get post analytics (combined stats)
+// Get post analytics (view count, etc.)
 export const getPostAnalytics = async (req, res) => {
   try {
     const { id } = req.params;
@@ -431,155 +393,65 @@ export const getPostAnalytics = async (req, res) => {
       return res.status(400).json({ message: "Invalid post ID" });
     }
 
-    const post = await Post.findOne({ _id: id, isDeleted: false })
-      .populate('user', 'name username profileImage');
+    // Check if user is the author of the post
+    const post = await Post.findOne({ _id: id, user: req.user._id, isDeleted: false });
 
     if (!post) {
-      return res.status(404).json({ message: "Post not found" });
+      return res.status(404).json({ message: "Post not found or you don't have permission to view analytics" });
     }
 
-    const shares = await Share.countDocuments({ postId: id });
-    const comments = post.comments.length;
-    const likes = post.likes.length;
+    // Get analytics data
+    const analytics = {
+      viewCount: post.viewCount,
+      uniqueViewers: post.uniqueViewers.length,
+      shares: post.shares.length,
+      likes: post.likes.length,
+      comments: post.comments.length
+    };
 
-    res.status(200).json({
-      success: true,
-      analytics: {
-        postId: post._id,
-        title: post.title || "Untitled",
-        content: post.content.substring(0, 100) + (post.content.length > 100 ? "..." : ""),
-        author: post.user.name,
-        createdAt: post.createdAt,
-        stats: {
-          likes: likes,
-          comments: comments,
-          shares: shares,
-          totalEngagement: likes + comments + shares
-        },
-        engagement: {
-          likeRate: likes > 0 ? Math.round((likes / (likes + comments + shares)) * 100) : 0,
-          commentRate: comments > 0 ? Math.round((comments / (likes + comments + shares)) * 100) : 0,
-          shareRate: shares > 0 ? Math.round((shares / (likes + comments + shares)) * 100) : 0
-        }
-      }
-    });
+    res.json(analytics);
   } catch (error) {
     console.error("Get post analytics error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Get user analytics
-export const getUserPostAnalytics = async (req, res) => {
+// Track post view
+export const trackPostView = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { id } = req.params;
+    const { ip, userAgent } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ message: "Invalid user ID" });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid post ID" });
     }
 
-    const posts = await Post.find({ user: userId, isDeleted: false })
-      .populate('user', 'name username profileImage');
-
-    if (posts.length === 0) {
-      return res.status(200).json({
-        success: true,
-        userId: userId,
-        totalPosts: 0,
-        analytics: {
-          totalLikes: 0,
-          totalComments: 0,
-          totalShares: 0,
-          averageEngagement: 0
-        },
-        posts: []
-      });
-    }
-
-    let totalLikes = 0;
-    let totalComments = 0;
-    let totalShares = 0;
-
-    const postsAnalytics = await Promise.all(
-      posts.map(async (post) => {
-        const shares = await Share.countDocuments({ postId: post._id });
-        const likes = post.likes.length;
-        const comments = post.comments.length;
-
-        totalLikes += likes;
-        totalComments += comments;
-        totalShares += shares;
-
-        return {
-          postId: post._id,
-          content: post.content.substring(0, 80) + (post.content.length > 80 ? "..." : ""),
-          createdAt: post.createdAt,
-          stats: {
-            likes: likes,
-            comments: comments,
-            shares: shares,
-            totalEngagement: likes + comments + shares
-          }
-        };
-      })
-    );
-
-    const averageEngagement = Math.round(
-      (totalLikes + totalComments + totalShares) / posts.length
-    );
-
-    res.status(200).json({
-      success: true,
-      userId: userId,
-      totalPosts: posts.length,
-      analytics: {
-        totalLikes: totalLikes,
-        totalComments: totalComments,
-        totalShares: totalShares,
-        averageEngagement: averageEngagement
-      },
-      posts: postsAnalytics
-    });
-  } catch (error) {
-    console.error("Get user analytics error:", error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ... existing code ...
-
-// Delete comment
-export const deleteComment = async (req, res) => {
-  try {
-    const { postId, commentId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(postId) || !mongoose.Types.ObjectId.isValid(commentId)) {
-      return res.status(400).json({ message: "Invalid post or comment ID" });
-    }
-
-    const post = await Post.findOne({ _id: postId, isDeleted: false });
+    const post = await Post.findOne({ _id: id, isDeleted: false });
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    const comment = post.comments.id(commentId);
+    // Increment view count
+    post.viewCount += 1;
 
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
+    // Add to unique viewers if not already viewed
+    if (!post.uniqueViewers.includes(req.user._id)) {
+      post.uniqueViewers.push(req.user._id);
     }
 
-    // Check if user is the comment author or post author
-    if (String(comment.user) !== String(req.user._id) && String(post.user) !== String(req.user._id)) {
-      return res.status(403).json({ message: "You can only delete your own comments or comments on your posts" });
-    }
+    // Add to view history
+    post.viewHistory.push({
+      user: req.user._id,
+      ip: sanitize(ip),
+      userAgent: sanitize(userAgent)
+    });
 
-    comment.remove();
     await post.save();
 
-    res.json({ message: "Comment deleted successfully", commentsCount: post.commentsCount });
+    res.json({ message: "View tracked successfully" });
   } catch (error) {
-    console.error("Delete comment error:", error);
+    console.error("Track post view error:", error);
     res.status(500).json({ message: error.message });
   }
 };

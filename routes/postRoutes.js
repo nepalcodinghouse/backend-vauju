@@ -1,7 +1,9 @@
 import express from 'express';
 import { auth as requireAuth } from '../middleware/auth.js';
+import { trackPostView } from '../middleware/viewTracker.js';
 import Post from '../models/Post.js';
 import Comment from '../models/Comment.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -42,7 +44,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get a single post by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', trackPostView, async (req, res) => {
   try {
     console.log(`Fetching post with ID: ${req.params.id}`);
     
@@ -230,6 +232,231 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (error.kind === 'ObjectId') {
       return res.status(400).json({ message: 'Invalid post ID format' });
     }
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get post view analytics
+router.get('/:id/analytics/views', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ message: 'Post ID is required' });
+    }
+
+    const post = await Post.findById(id)
+      .populate('user', 'name username profileImage');
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Check if user is the author of the post
+    if (post.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized to view analytics for this post' });
+    }
+
+    // Get unique viewers count
+    const uniqueViewersCount = post.uniqueViewers.length;
+
+    // Get view history grouped by date
+    const viewHistory = post.viewHistory || [];
+    
+    // Group views by date for chart data
+    const viewsByDate = {};
+    viewHistory.forEach(view => {
+      const date = view.viewedAt.toISOString().split('T')[0];
+      if (!viewsByDate[date]) {
+        viewsByDate[date] = 0;
+      }
+      viewsByDate[date]++;
+    });
+
+    // Get top viewers (users with most views)
+    const viewerCounts = {};
+    viewHistory.forEach(view => {
+      if (view.user) {
+        const userId = view.user.toString();
+        if (!viewerCounts[userId]) {
+          viewerCounts[userId] = {
+            count: 0,
+            user: view.user
+          };
+        }
+        viewerCounts[userId].count++;
+      }
+    });
+
+    // Convert to array and sort by count
+    const topViewers = Object.values(viewerCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    res.status(200).json({
+      success: true,
+      analytics: {
+        postId: post._id,
+        title: post.title || "Untitled",
+        content: post.content.substring(0, 100) + (post.content.length > 100 ? "..." : ""),
+        author: post.user.name,
+        createdAt: post.createdAt,
+        viewStats: {
+          totalViews: post.viewCount || 0,
+          uniqueViewers: uniqueViewersCount,
+          repeatViewers: (post.viewCount || 0) - uniqueViewersCount,
+          viewsByDate: viewsByDate
+        },
+        topViewers: topViewers
+      }
+    });
+  } catch (error) {
+    console.error('Get post view analytics error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get detailed view history for a post
+router.get('/:id/history/views', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!id) {
+      return res.status(400).json({ message: 'Post ID is required' });
+    }
+
+    const post = await Post.findById(id)
+      .populate('viewHistory.user', 'name username profileImage');
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Check if user is the author of the post
+    if (post.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized to view history for this post' });
+    }
+
+    const viewHistory = post.viewHistory || [];
+    const totalViews = viewHistory.length;
+    
+    // Pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = startIndex + limitNum;
+    
+    const paginatedViews = viewHistory
+      .sort((a, b) => new Date(b.viewedAt) - new Date(a.viewedAt))
+      .slice(startIndex, endIndex);
+
+    res.status(200).json({
+      success: true,
+      postId: post._id,
+      viewHistory: paginatedViews,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(totalViews / limitNum),
+        totalViews: totalViews,
+        hasNext: endIndex < totalViews,
+        hasPrev: startIndex > 0
+      }
+    });
+  } catch (error) {
+    console.error('Get post view history error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get user's post view analytics
+router.get('/user/:userId/analytics/views', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    // Check if user is requesting their own analytics or is admin
+    if (userId !== req.user._id.toString()) {
+      // Check if user is admin
+      const user = await User.findById(req.user._id);
+      if (!user || !user.isAdmin) {
+        return res.status(403).json({ message: 'Not authorized to view analytics for this user' });
+      }
+    }
+
+    // Get all posts by user
+    const posts = await Post.find({ user: userId })
+      .sort({ createdAt: -1 });
+
+    if (posts.length === 0) {
+      return res.status(200).json({
+        success: true,
+        userId: userId,
+        totalPosts: 0,
+        viewAnalytics: {
+          totalViews: 0,
+          totalUniqueViewers: 0,
+          averageViewsPerPost: 0,
+          mostViewedPost: null
+        },
+        posts: []
+      });
+    }
+
+    // Calculate view statistics
+    let totalViews = 0;
+    let totalUniqueViewers = 0;
+    let mostViewedPost = null;
+    let maxViews = 0;
+
+    const postsWithViews = await Promise.all(
+      posts.map(async (post) => {
+        const views = post.viewCount || 0;
+        const uniqueViewers = post.uniqueViewers.length;
+        
+        totalViews += views;
+        totalUniqueViewers += uniqueViewers;
+        
+        if (views > maxViews) {
+          maxViews = views;
+          mostViewedPost = {
+            postId: post._id,
+            title: post.title || "Untitled",
+            views: views,
+            uniqueViewers: uniqueViewers
+          };
+        }
+
+        return {
+          postId: post._id,
+          title: post.title || "Untitled",
+          content: post.content.substring(0, 80) + (post.content.length > 80 ? "..." : ""),
+          createdAt: post.createdAt,
+          views: views,
+          uniqueViewers: uniqueViewers
+        };
+      })
+    );
+
+    const averageViewsPerPost = Math.round(totalViews / posts.length);
+
+    res.status(200).json({
+      success: true,
+      userId: userId,
+      totalPosts: posts.length,
+      viewAnalytics: {
+        totalViews: totalViews,
+        totalUniqueViewers: totalUniqueViewers,
+        averageViewsPerPost: averageViewsPerPost,
+        mostViewedPost: mostViewedPost
+      },
+      posts: postsWithViews
+    });
+  } catch (error) {
+    console.error('Get user post view analytics error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

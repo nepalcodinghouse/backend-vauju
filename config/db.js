@@ -10,4 +10,10 @@ const connectDB = async () => {
   }
 };
 
+// Add this function to check if database is connected
+const isDbConnected = () => {
+  return mongoose.connection.readyState === 1;
+};
+
+export { isDbConnected };
 export default connectDB;

@@ -4,6 +4,10 @@ import User from "../models/User.js";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import sanitizer from "sanitizer";
+
+// Get the sanitize function from the CommonJS module
+const { sanitize } = sanitizer;
 
 // Get the directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -25,10 +29,19 @@ if (!JWT_SECRET) {
 // Register
 export const registerUser = async (req, res) => {
   try {
+    // Sanitize input data
     const { username, name, email, password } = req.body;
+    const sanitizedUsername = sanitize(username);
+    const sanitizedName = sanitize(name);
+    const sanitizedEmail = sanitize(email);
+
+    // Validate input
+    if (!sanitizedUsername || !sanitizedName || !sanitizedEmail || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
 
     // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: sanitizedEmail });
     if (existingUser)
       return res.status(400).json({ message: "User already exists" });
 
@@ -37,9 +50,9 @@ export const registerUser = async (req, res) => {
 
     // Create user - permissions will be set by the pre-save hook in the User model
     const user = await User.create({
-      name,
-      username,
-      email,
+      name: sanitizedName,
+      username: sanitizedUsername,
+      email: sanitizedEmail,
       password: hashedPassword,
     });
 
@@ -59,10 +72,17 @@ export const registerUser = async (req, res) => {
 // Login
 export const loginUser = async (req, res) => {
   try {
+    // Sanitize input data
     const { email, password } = req.body;
+    const sanitizedEmail = sanitize(email);
+
+    // Validate input
+    if (!sanitizedEmail || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
 
     // Check if user exists
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Compare password

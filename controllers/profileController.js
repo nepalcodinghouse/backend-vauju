@@ -5,6 +5,10 @@ import { _exported_messageStore } from "./messageController.js";
 import path from "path";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
+import sanitizer from "sanitizer";
+
+// Get the sanitize function from the CommonJS module
+const { sanitize } = sanitizer;
 
 // Configure Cloudinary
 cloudinary.config({
@@ -12,6 +16,7 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
 const devStore = { users: [] };
 
 // Middleware: require auth
@@ -53,11 +58,21 @@ export const getProfile = async (req, res) => {
 // PUT /api/profile
 export const updateProfile = async (req, res) => {
   try {
+    // Sanitize all input data
     const updates = { ...req.body };
+    
+    // Sanitize each field
+    for (const key in updates) {
+      if (typeof updates[key] === 'string') {
+        updates[key] = sanitize(updates[key]);
+      }
+    }
 
-    // Convert interests to array
+    // Convert interests to array and sanitize each interest
     if (updates.interests && typeof updates.interests === "string") {
-      updates.interests = updates.interests.split(",").map(s => s.trim()).filter(Boolean);
+      updates.interests = updates.interests.split(",").map(s => sanitize(s.trim())).filter(Boolean);
+    } else if (Array.isArray(updates.interests)) {
+      updates.interests = updates.interests.map(interest => sanitize(interest));
     }
 
     // Ensure age is number

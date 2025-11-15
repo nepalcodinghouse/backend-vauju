@@ -9,6 +9,16 @@ import connectDB from "./config/db.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Security packages
+import helmet from "helmet";
+import xss from "xss-clean";
+import rateLimit from "express-rate-limit";
+import mongoSanitize from "express-mongo-sanitize";
+import sanitizer from "sanitizer";
+
+// Get the sanitize function from the CommonJS module
+const { sanitize } = sanitizer;
+
 // Get the directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,13 +46,12 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-// Import Models
+// Import Models (only the ones needed for startup)
 import User from "./models/User.js";
 import Post from "./models/Post.js";
-import Comment from "./models/Comment.js";
 import Notification from "./models/Notification.js";
 
-// Connect to MongoDB with retry logic
+// Connect to MongoDB with retry logic and optimized connection
 const connectWithRetry = async () => {
   try {
     await connectDB();
@@ -57,6 +66,42 @@ const connectWithRetry = async () => {
 connectWithRetry();
 
 const app = express();
+
+// Security Middleware
+// Helmet for setting various HTTP headers for security
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "https:", "data:"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  }
+}));
+
+// Rate limiting to prevent brute force attacks
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    error: "Too many requests from this IP, please try again later."
+  }
+});
+
+app.use(limiter);
+
+// Data sanitization against NoSQL query injection
+app.use(mongoSanitize());
+
+// Data sanitization against XSS
+app.use(xss());
 
 // CORS Configuration
 const allowedOrigins = [
@@ -84,14 +129,51 @@ app.use(
 // REMOVE THIS LINE:
 // app.options("*", cors());  // THIS CAUSES CRASH
 
-// Middleware
-app.use(express.json({ limit: '10mb' })); // Reduced limit for faster processing
-app.use(express.urlencoded({ limit: '10mb', extended: true })); // Reduced limit
+// Optimized Middleware
+app.use(express.json({ limit: '5mb' })); // Reduced limit for faster processing
+app.use(express.urlencoded({ limit: '5mb', extended: true })); // Reduced limit
 
-// Serve static files for local uploads
+// Custom XSS sanitization middleware for all requests
+app.use((req, res, next) => {
+  // Sanitize query parameters
+  for (const key in req.query) {
+    if (typeof req.query[key] === 'string') {
+      req.query[key] = sanitize(req.query[key]);
+    }
+  }
+  
+  // Sanitize body parameters
+  for (const key in req.body) {
+    if (typeof req.body[key] === 'string') {
+      req.body[key] = sanitize(req.body[key]);
+    } else if (Array.isArray(req.body[key])) {
+      req.body[key] = req.body[key].map(item => 
+        typeof item === 'string' ? sanitize(item) : item
+      );
+    } else if (typeof req.body[key] === 'object' && req.body[key] !== null) {
+      for (const subKey in req.body[key]) {
+        if (typeof req.body[key][subKey] === 'string') {
+          req.body[key][subKey] = sanitize(req.body[key][subKey]);
+        }
+      }
+    }
+  }
+  
+  // Sanitize URL parameters
+  for (const key in req.params) {
+    if (typeof req.params[key] === 'string') {
+      req.params[key] = sanitize(req.params[key]);
+    }
+  }
+  
+  next();
+});
+
+// Serve static files for local uploads with optimized caching
 app.use("/uploads", express.static("uploads", {
-  maxAge: '1d', // Cache for 1 day
-  etag: true
+  maxAge: '7d', // Cache for 7 days (increased from 1 day)
+  etag: true,
+  lastModified: true
 }));
 
 // =====================
@@ -102,6 +184,21 @@ app.use("/uploads", express.static("uploads", {
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
 });
+
+// =====================
+// Lazy Load Routes (only when needed)
+// =====================
+
+// Import and register routes only when needed to reduce startup time
+app.use("/api/auth", await import("./routes/authRoutes.js").then(m => m.default));
+app.use("/api/users", await import("./routes/userRoutes.js").then(m => m.default));
+app.use("/api/posts", await import("./routes/postRoutes.js").then(m => m.default));
+app.use("/api/comments", await import("./routes/commentRoutes.js").then(m => m.default));
+app.use("/api/matches", await import("./routes/matchRoutes.js").then(m => m.default));
+app.use("/api/messages", await import("./routes/messageRoutes.js").then(m => m.default));
+app.use("/api/profile", await import("./routes/profileRoutes.js").then(m => m.default));
+app.use("/api/admin", await import("./routes/adminRoutes.js").then(m => m.default));
+app.use("/api/system", await import("./routes/systemRoutes.js").then(m => m.default));
 
 // =====================
 // Auth Middleware
@@ -138,6 +235,7 @@ app.get("/api", (req, res) => {
   res.json({ status: "AuraMeet API is running perfectly!" });
 });
 
+// Get a random girl user profile
 app.get("/api/random-girl", async (req, res) => {
   try {
     const randomGirl = await User.aggregate([
@@ -164,6 +262,37 @@ app.get("/api/random-girl", async (req, res) => {
     res.json(randomGirl[0]);
   } catch (error) {
     console.error("Random girl error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get a random boy user profile
+app.get("/api/random-boy", async (req, res) => {
+  try {
+    const randomBoy = await User.aggregate([
+      { $match: { gender: "male", suspended: { $ne: true } } },
+      { $sample: { size: 1 } },
+      {
+        $project: {
+          name: 1,
+          age: 1,
+          location: 1,
+          profilePic: 1,
+          username: 1,
+          number: 1,
+          bio: 1,
+          interests: 1,
+        },
+      },
+    ]);
+
+    if (!randomBoy.length) {
+      return res.status(404).json({ message: "No male users found" });
+    }
+
+    res.json(randomBoy[0]);
+  } catch (error) {
+    console.error("Random boy error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -615,6 +744,11 @@ const io = new IOServer(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  // Optimize Socket.IO for performance
+  transports: ["websocket", "polling"],
+  allowEIO3: true,
+  pingTimeout: 20000,
+  pingInterval: 25000
 });
 
 // Track connected users
